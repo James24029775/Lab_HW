@@ -158,44 +158,43 @@ void adoptChild(node *parent, node *child) {
     child->parent = parent;
 }
 
-//! 我認為非常有可能是wait的問題，因為註解掉pipe部分可以顯示成功，並且輸出順序是雜亂的
-//! 也要注意結束時有兩個process，有一個在混
 void recursive_fork(node *Node, int cmd_index) {
-    printf("RF: %s %s %d %d\n", Node->cmds->terms[0], Node->cmds->terms[1], Node->cmd_cnt, cmd_index);
-    if (cmd_index >= Node->cmd_cnt) {
-        return;
-    }
-    int fds[2];
-    pid_t pid;
-    cmd *localCmd;
+    // printf("RF: %s %s %d %d\n", Node->cmds->terms[0], Node->cmds->terms[1], Node->cmd_cnt, cmd_index);
+    // if (cmd_index >= Node->cmd_cnt) {
+    //     return;
+    // }
+    // int fds[2];
+    // pid_t pid;
+    // cmd *localCmd;
 
-    if (pipe(fds) == -1) {
-        perror("Error");
-        exit(EXIT_FAILURE);
-    }
+    // if (pipe(fds) == -1) {
+    //     perror("Error");
+    //     exit(EXIT_FAILURE);
+    // }
 
-    pid = fork();
-    switch (pid) {
-        case -1:
-            perror("Error");
-            exit(EXIT_FAILURE);
-        case 0:
-            // dup2(fds[1], STDOUT_FILENO);
-            // close(fds[0]);
-            // close(fds[1]);
-            localCmd = &(Node->cmds[cmd_index]);
-            // printf("%s %s\n", localCmd->terms[0], localCmd->terms[1]);
+    // pid = fork();
+    // switch (pid) {
+    //     case -1:
+    //         perror("Error");
+    //         exit(EXIT_FAILURE);
+    //     case 0:
+    //         // dup2(fds[1], STDOUT_FILENO);
+    //         // close(fds[0]);
+    //         // close(fds[1]);
+    //         localCmd = &(Node->cmds[cmd_index]);
+    //         // printf("%s %s\n", localCmd->terms[0], localCmd->terms[1]);
 
-            execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1], NULL);
-            perror("Error");
-            exit(EXIT_FAILURE);
-        default:
-            // dup2(fds[0], STDIN_FILENO);
-            // close(fds[0]);
-            // close(fds[1]);
-            recursive_fork(Node, cmd_index + 1);
-            break;
-    }
+    //         execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1], NULL);
+    //         perror("Error");
+    //         exit(EXIT_FAILURE);
+    //     default:
+    //         // dup2(fds[0], STDIN_FILENO);
+    //         // close(fds[0]);
+    //         // close(fds[1]);
+    //         recursive_fork(Node, cmd_index + 1);
+    //         break;
+    // }
+    
 }
 
 void numbered_pipe(node *Node) {
