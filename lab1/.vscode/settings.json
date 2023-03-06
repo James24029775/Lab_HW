@@ -1,0 +1,8 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+    "files.associations": {
+        "sstream": "c",
+        "types.h": "c",
+        "functional": "c"
+    }
+}
