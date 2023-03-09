@@ -332,7 +332,6 @@ node *getParentNode(know_node *knowNode) {
   node *localNode;
   for (i = 0; i < knowNode->cnt; i++) {
     localNode = knowNode->record[i];
-
     if (!localNode->parent) {
       return localNode;
     }
@@ -353,6 +352,7 @@ void minus_ttl(know_node *knowNode) {
 void show_tree(node *Node) {
   int i;
   node *childNode;
+  // printf("%d     fefe\n", Node->chd_cnt);
   if (Node->chd_cnt) {
     for (i = 0; i < Node->chd_cnt; i++) {
       childNode = Node->child[i];
@@ -371,47 +371,141 @@ void adoptChild(node *parent, node *child) {
   child->parent = parent;
 }
 
+void recursive_fork(node *Node, int cmd_index) {
+  // printf("RF: %s %s %d %d\n", Node->cmds->terms[0], Node->cmds->terms[1],
+  // Node->cmd_cnt, cmd_index); if (cmd_index >= Node->cmd_cnt) {
+  //     return;
+  // }
+  // int fds[2];
+  // pid_t pid;
+  // cmd *localCmd;
+
+  // if (pipe(fds) == -1) {
+  //     perror("Error");
+  //     exit(EXIT_FAILURE);
+  // }
+
+  // pid = fork();
+  // switch (pid) {
+  //     case -1:
+  //         perror("Error");
+  //         exit(EXIT_FAILURE);
+  //     case 0:
+  //         // dup2(fds[1], STDOUT_FILENO);
+  //         // close(fds[0]);
+  //         // close(fds[1]);
+  //         localCmd = &(Node->cmds[cmd_index]);
+  //         // printf("%s %s\n", localCmd->terms[0], localCmd->terms[1]);
+
+  //         execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
+  //         NULL); perror("Error"); exit(EXIT_FAILURE);
+  //     default:
+  //         // dup2(fds[0], STDIN_FILENO);
+  //         // close(fds[0]);
+  //         // close(fds[1]);
+  //         recursive_fork(Node, cmd_index + 1);
+  //         break;
+  // }
+}
+
 void numbered_pipe(node *Node, int cmd_idx) {
   pid_t pid;
-  int fds[2], i, j;
+  int fds[2], i;
   char buf[LENGTH_LIMIT] = {0};
   node *localNode;
-
-  if (!Node->chd_cnt) {
-    execlp(Node->cmds[cmd_idx].terms[0], Node->cmds[cmd_idx].terms[0],
-           Node->cmds[cmd_idx].terms[1], NULL);
-    return;
-  }
 
   if (pipe(fds) == -1) {
     perror("Error");
     exit(EXIT_FAILURE);
   }
 
-  localNode = Node->child[cmd_idx];
-  for (j = 0; j < localNode->cmd_cnt; j++) {
-    pid = fork();
-    switch (pid) {
-      case -1:
+  if (!Node->chd_cnt) {
+    for (i = 0; i < Node->cmd_cnt; i++) {
+      pid = fork();
+      if (pid == -1) {
         perror("Error");
         exit(EXIT_FAILURE);
-      case 0:
+      }
+      if (pid == 0) {
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
-        numbered_pipe(localNode, j);
-        exit(EXIT_SUCCESS);
-      default:
+        execlp(Node->cmds[i].terms[0], Node->cmds[i].terms[0],
+               Node->cmds[i].terms[1], NULL);
+        perror("Error");
+        exit(EXIT_FAILURE);
+      } else {
         wait(NULL);
-        break;
+      }
     }
+    dup2(fds[0], STDIN_FILENO);
+
+    //! still have no idea why the following line does not need.
+    //! why fd 0 can not be dismissed?
+    // close(fds[0]);
+    close(fds[1]);
+    return;
   }
 
-  dup2(fds[0], STDIN_FILENO);
-  close(fds[0]);
-  close(fds[1]);
+  pid = fork();
+  switch (pid) {
+    case -1:
+      perror("Error");
+      exit(EXIT_FAILURE);
+      break;
+    case 0:
+      dup2(fds[1], STDOUT_FILENO);
+      close(fds[0]);
+      close(fds[1]);
 
-  execlp(Node->cmds[cmd_idx].terms[0], Node->cmds[cmd_idx].terms[0], NULL);
+      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      // 這裡原本忘記處理一個節點中的第一個之外的cmd，後來想說通通個別number_pipe一次再印出來就可以解決，結果只能顯示第一次的numbered_pipe，不知哪有問題
+
+      localNode = Node->child[0];
+
+      memset(buf, 0, sizeof(buf));
+      // numbered_pipe(localNode, 0);
+      numbered_pipe(localNode, 1);
+      // int i, n;
+      // n = getdtablesize();  // 获取当前进程能够打开的最大文件描述符数
+      // for (i = 0; i < n; i++) {
+      //   int fd_flags = fcntl(i, F_GETFL);  // 获取文件描述符的状态标志
+      //   if (fd_flags != -1) {
+      //     printf("File descriptor %d is open\n", i);
+      //   }
+      // }
+      while (read(fds[0], buf, sizeof(buf)) != 0) {
+        printf("%s", buf);  // print the output of the command
+      }
+
+      // memset(buf, 0, sizeof(buf));
+      // numbered_pipe(localNode, 1);
+      // while (read(fds[0], buf, sizeof(buf)) != 0) {
+      //   printf("%s", buf);  // print the output of the command
+      // }
+
+      // int j;
+      // for (i = 0; i < Node->chd_cnt; i++) {
+      // 	localNode = Node->child[i];
+      // 	for (j = 0 ; j < localNode->cmd_cnt ; j++){
+      // 		printf("sssssss%d   %d\n", Node->id, j);
+      // 		numbered_pipe(localNode, j);
+      // 	}
+      // }
+
+      // while (read(fds[0], buf, sizeof(buf)) != 0) {
+      //   printf("%s", buf);  // print the output of the command
+      // }
+      exit(EXIT_SUCCESS);
+    default:
+      dup2(fds[0], STDIN_FILENO);
+      close(fds[0]);
+      close(fds[1]);
+      wait(NULL);
+
+      execlp(Node->cmds[cmd_idx].terms[0], Node->cmds[cmd_idx].terms[0], NULL);
+      break;
+  }
 }
 
 void bin_func(char *terms[100][100], int cmd_amt, int *terms_amt,
@@ -434,7 +528,8 @@ void bin_func(char *terms[100][100], int cmd_amt, int *terms_amt,
       //     dup2(fd, STDOUT_FILENO);
       //     close(fd);
       // }
-      if ((Node->id) >= 0) {
+
+      if (*(char *)(Node)) {
         numbered_pipe(Node, 0);
       } else if (cmd_amt == 1) {
         //! It may be wrong, but tackle it later. Only ls is correct.
@@ -466,10 +561,10 @@ void freeKnowNode(know_node *knowNode) {
 
 int main(void) {
   char *cmd_1[100][100] = {{"bin/number", "test.html"}, {"1"}};
-  char *cmd_2[100][100] = {{"bin/number", "test.html"}, {"2"}};
-  char *cmd_3[100][100] = {{"bin/removetag", "test.html"}, {"2"}};
-  char *cmd_4[100][100] = {{"bin/number"}, {"2"}};
-  char *cmd_5[100][100] = {{"bin/number"}, {"5"}};
+  char *cmd_2[100][100] = {{"bin/removetag", "test.html"}, {"2"}};
+  char *cmd_3[100][100] = {{"bin/number", "test.html"}, {"3"}};
+  char *cmd_4[100][100] = {{"bin/number"}, {"1"}};
+  char *cmd_5[100][100] = {{"bin/removetag"}, {"5"}};
   char *cmd_6[100][100] = {{"bin/number"}};
 
   int terms_amt_1[] = {2, 1};
@@ -495,238 +590,26 @@ int main(void) {
   int idx;
   memset(&knowNode, 0, sizeof(know_node));
 
-  // Three
-  {
-    ifNumberPipe = true;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_3[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_3, terms_amt_3, cmd_amt_3);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_3, terms_amt_3, cmd_amt_3);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-      adoptChild(newNode, targetNode);
-      bin_func(cmd_3, cmd_amt_3, terms_amt_3, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
-  // Three
-  {
-    ifNumberPipe = true;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_3[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_3, terms_amt_3, cmd_amt_3);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_3, terms_amt_3, cmd_amt_3);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_3, terms_amt_3, cmd_amt_3);
-      adoptChild(newNode, targetNode);
-      bin_func(cmd_3, cmd_amt_3, terms_amt_3, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
+  THREE
+  TWO ONE FIVE
 
-  // Four
-  {
-    ifNumberPipe = true;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_4[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_4, terms_amt_4, cmd_amt_4);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_4, terms_amt_4, cmd_amt_4);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-      adoptChild(newNode, targetNode);
-      bin_func(cmd_4, cmd_amt_4, terms_amt_4, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
-  // Four
-  {
-    ifNumberPipe = true;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_4[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_4, terms_amt_4, cmd_amt_4);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_4, terms_amt_4, cmd_amt_4);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_4, terms_amt_4, cmd_amt_4);
-      adoptChild(newNode, targetNode);
-      bin_func(cmd_4, cmd_amt_4, terms_amt_4, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
-  // targetNode = getParentNode(&knowNode);
-  // show_tree(targetNode);
-  // printf("\n");
+      THREE TWO ONE FOUR
 
-  // SIX
-  {
-    ifNumberPipe = false;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_6[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_6, terms_amt_6, cmd_amt_6);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_6, terms_amt_6, cmd_amt_6);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-      adoptChild(newNode, targetNode);
-      bin_func(cmd_6, cmd_amt_6, terms_amt_6, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
-  // targetNode = getParentNode(&knowNode);
-  // show_tree(targetNode);
+          SIX
 
-  // SIX
-  {
-    ifNumberPipe = false;
-    minus_ttl(&knowNode);
-    targetNode = getSpecificNode(&knowNode, 0);
-    if (ifNumberPipe) {
-      ttl = tran2number(cmd_6[1][0]);
-      if (targetNode) {
-        parentNode = getSpecificNode(&knowNode, ttl);
-        if (parentNode) {
-          addInfo2ExistNode(parentNode, cmd_6, terms_amt_6, cmd_amt_6);
-          adoptChild(parentNode, targetNode);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-          adoptChild(newNode, targetNode);
-        }
-      } else {
-        targetNode = getSpecificNode(&knowNode, ttl);
-        if (targetNode) {
-          addInfo2ExistNode(targetNode, cmd_6, terms_amt_6, cmd_amt_6);
-        } else {
-          newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-        }
-      }
-    } else if (targetNode) {
-      newNode = createNode(&knowNode);
-      addInfo2ExistNode(newNode, cmd_6, terms_amt_6, cmd_amt_6);
-      adoptChild(newNode, targetNode);
+              // int i;
+              // for (i = 0 ; i < knowNode.cnt ; i++){
+              //     printf("%d ", knowNode.record[i]->chd_cnt);
+              // }
+              // printf("\n");
+              // for (i = 0 ; i < knowNode.cnt ; i++){
+              //     printf("%d ", knowNode.record[i]->cmd_cnt);
+              // }
+              // printf("\n");
 
-      // targetNode = getParentNode(&knowNode);
-      // printf("%d\n", targetNode->id);
-      // show_tree(targetNode);
-      // printf("\n");
-
-      bin_func(cmd_6, cmd_amt_6, terms_amt_6, filename, ifNumberPipe, newNode);
-    } else {
-    }
-  }
-
-  // int i;
-  // for (i = 0 ; i < knowNode.cnt ; i++){
-  //     printf("%d ", knowNode.record[i]->chd_cnt);
-  // }
-  // printf("\n");
-  // for (i = 0 ; i < knowNode.cnt ; i++){
-  //     printf("%d ", knowNode.record[i]->cmd_cnt);
-  // }
-  // printf("\n");
-
-  // targetNode = getParentNode(&knowNode);
-  // show_tree(targetNode);
-  // printf("\n");
+              targetNode = getParentNode(&knowNode);
+  show_tree(targetNode);
+  printf("\n");
 
   freeKnowNode(&knowNode);
 }
