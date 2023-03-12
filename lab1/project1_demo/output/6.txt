@@ -1,0 +1,6 @@
+% manyblessings
+% manyblessings
+% wc
+% Commands amount: 1
+1	exit	
+

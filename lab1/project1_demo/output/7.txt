@@ -1,0 +1,27 @@
+% Commands amount: 4
+2	removetag	test.html	
+2	2	ls	
+1	number	
+1	1	
+
+SHIT% Commands amount: 2
+1	number	
+1	1	
+
+SHIT% wc
+% Commands amount: 2
+2	removetag	test.html	
+1	2	
+
+SHIT% Commands amount: 2
+1	ls	
+3	1	wc	-c	
+
+SHIT% Commands amount: 2
+2	removetag	test.html	
+1	2	
+
+SHIT% wc
+% wc
+% exi
+% 
