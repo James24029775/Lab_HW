@@ -1,6 +1,4 @@
-% manyblessings
-% manyblessings
-% wc
-% Commands amount: 1
-1	exit	
-
+% Unknown command: [manyblessings].
+% Unknown command: [manyblessings].
+% % Unknown command: [wc].
+% 

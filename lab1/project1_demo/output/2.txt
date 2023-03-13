@@ -1,46 +1,17 @@
-% Commands amount: 1
-2	cat	test.html	
-
-<!test.html>
+% <!test.html>
 <TITLE>Test</TITLE>
 <BODY>This is a <b>test</b> program
 for ras.
 </BODY>
-% Commands amount: 2
-2	cat	test.html	
-1	removetag	
-
+% Error: No such file or directory
+% cat: write error: Broken pipe
 Error: No such file or directory
-% Commands amount: 1
-2	number	test.html	
-
-cat: write error: Broken pipe
-Error: No such file or directory
-% Commands amount: 2
-2	cat	test1.txt	
-1	number	
-
-Error: No such file or directory
-% noop
-% noop
-% noop
-% Commands amount: 1
-2	cat	test1.txt	
-
-% Commands amount: 1
-2	cat	test2.txt	
-
-% noop
-% noop
-% noop
-% Commands amount: 2
-2	cat	test1.txt	
-1	removetag	
-
-Error: No such file or directory
-% Commands amount: 1
-2	cat	test2.txt	
-
-% Commands amount: 1
-1	exit	
-
+% Error: No such file or directory
+% Unknown command: [noop].
+% Unknown command: [noop].
+% Unknown command: [noop].
+% % % Unknown command: [noop].
+% Unknown command: [noop].
+% Unknown command: [noop].
+% Error: No such file or directory
+% % 
