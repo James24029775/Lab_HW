@@ -193,7 +193,7 @@ int main(void) {
       }
     }
     // show(&current_op);
-		show_node(&knowNode);
+		// show_node(&knowNode);
     printf("%% ");
   }
 }
