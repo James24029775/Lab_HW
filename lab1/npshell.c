@@ -14,6 +14,7 @@
 #define CMD_PER_OP_LIMIT 100
 #define CHILD_LIMIT 100
 #define NODE_LIMIT 5000
+#define EX_LIMIT 100
 #define SUCCESS 0
 #define FAILURE 1
 #define VALID_CMD                                                           \
@@ -37,6 +38,7 @@ typedef struct cmd {
 typedef struct ordinary_pipe_t {
   cmd cmds[CMD_PER_OP_LIMIT];
   int cnt;
+  bool ex_flg;
 } ordinary_pipe_t;
 
 typedef struct number_pipe_t {
@@ -55,9 +57,12 @@ typedef struct know_node {
 } know_node;
 
 int tran2number(char *);
+
 int split_terms(char *, ordinary_pipe_t *, char *);
 int copy_ith_op(ordinary_pipe_t *, ordinary_pipe_t *, int);
-void reset_OP(ordinary_pipe_t *);
+void scan(char *, int *);
+void exec_cmds(cmd *);
+void reset(ordinary_pipe_t *, int *);
 void show(ordinary_pipe_t *);
 void printenv(char[TERM_AMT_LIMIT][CHAR_AMT_LIMIT], int);
 void bin_func(ordinary_pipe_t *, char *, number_pipe_t *);
@@ -68,7 +73,7 @@ void show_tree(number_pipe_t *);
 void adoptChild(number_pipe_t *, number_pipe_t *);
 void numbered_pipe(number_pipe_t *, int);
 void freeKnowNode(know_node *);
-void addInfo2ExistNode(number_pipe_t *, ordinary_pipe_t *, int);
+void addInfo2ExistNode(number_pipe_t *, ordinary_pipe_t *, int, int *, int);
 void ordinary_pipe(ordinary_pipe_t *, int);
 bool check_valid(ordinary_pipe_t *, char *, bool *, int *);
 bool isdigit_myself(char *);
@@ -78,8 +83,8 @@ number_pipe_t *getParentNode(know_node *);
 
 int main(void) {
   char input[LENGTH_LIMIT], illegal_term[LENGTH_LIMIT], filename[LENGTH_LIMIT];
-  int cmd_amt, terms_amt[LENGTH_LIMIT], ttl, OP_len, np_cnt, i, start_index;
-  bool ifNumberPipe, first_flg;
+  int cmd_amt, ttl, OP_len, np_cnt, i, start_index, ith[EX_LIMIT];
+  bool ifNumberPipe, first_flg, ex_flg;
   know_node knowNode;
   number_pipe_t *targetNode, *newNode, *parentNode;
   cmd *localCmd;
@@ -88,17 +93,24 @@ int main(void) {
   setenv("PATH", "bin:.", 1);
   printf("%% ");
   while (fgets(input, LENGTH_LIMIT, stdin)) {
+		if (!strcmp(input, "\n")){
+			printf("%% ");
+			continue;
+		}
     // reset
     char *terms[LENGTH_LIMIT][TERM_AMT_LIMIT];
     cmd_amt = OP_len = start_index = 0;
-    ifNumberPipe = false;
-    memset(terms_amt, 0, LENGTH_LIMIT);
+    ifNumberPipe = ex_flg = false;
     memset(filename, 0, LENGTH_LIMIT);
-    reset_OP(&current_op);
+    reset(&current_op, ith);
     memset(&current_op, 0, sizeof(ordinary_pipe_t));
+    scan(input, ith);
     np_cnt = split_terms(input, &current_op, filename);
     memset(input, 0, LENGTH_LIMIT);
     targetNode = newNode = parentNode = NULL;
+
+    // show(&current_op);
+    // show_node(&knowNode);
 
     minus_ttl(&knowNode);
     targetNode = getSpecificNode(&knowNode, 0);
@@ -107,7 +119,6 @@ int main(void) {
       for (i = 0; i < np_cnt + 1; i++) {
         targetNode = newNode = parentNode = NULL;
         memset(&tmp_op, 0, sizeof(ordinary_pipe_t));
-
         start_index = copy_ith_op(&tmp_op, &current_op, start_index);
         if (start_index == -1) {
           break;
@@ -123,16 +134,6 @@ int main(void) {
           ifNumberPipe = false;
         }
 
-        // removeta test.html |2 removetag test.html |1
-        // setenv PATH bin
-        // removetag test.html |2 removetag test.html |1
-        // number |1
-        // number
-        // number |1 number
-        // number test.html | number | removetag |2 removetag test.html |
-        // removetag | 1
-
-        //! removetag test.html |2 removetag test.html |1
         if (first_flg) {
           first_flg = false;
         } else {
@@ -144,28 +145,29 @@ int main(void) {
           if (targetNode) {
             parentNode = getSpecificNode(&knowNode, ttl);
             if (parentNode) {
-              addInfo2ExistNode(parentNode, &tmp_op, OP_len);
+              addInfo2ExistNode(parentNode, &tmp_op, OP_len, ith, i);
               adoptChild(parentNode, targetNode);
             } else {
               newNode = createNode(&knowNode);
-              addInfo2ExistNode(newNode, &tmp_op, OP_len);
+              addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
               adoptChild(newNode, targetNode);
             }
           } else {
             targetNode = getSpecificNode(&knowNode, ttl);
             if (targetNode) {
-              addInfo2ExistNode(targetNode, &tmp_op, OP_len);
+              addInfo2ExistNode(targetNode, &tmp_op, OP_len, ith, i);
             } else {
               newNode = createNode(&knowNode);
-              addInfo2ExistNode(newNode, &tmp_op, OP_len);
+              addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
             }
           }
         } else if (targetNode) {
           newNode = createNode(&knowNode);
-          addInfo2ExistNode(newNode, &current_op, OP_len);
+          addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
           adoptChild(newNode, targetNode);
-          bin_func(&current_op, filename, newNode);
+          bin_func(&tmp_op, filename, newNode);
         }
+        // show(&tmp_op);
         // show_node(&knowNode);
       }
     } else {
@@ -176,7 +178,7 @@ int main(void) {
       }
       if (targetNode) {
         newNode = createNode(&knowNode);
-        addInfo2ExistNode(newNode, &current_op, OP_len);
+        addInfo2ExistNode(newNode, &current_op, OP_len, ith, -2);
         adoptChild(newNode, targetNode);
         bin_func(&current_op, filename, newNode);
       } else {
@@ -193,7 +195,7 @@ int main(void) {
       }
     }
     // show(&current_op);
-		// show_node(&knowNode);
+    // show_node(&knowNode);
     printf("%% ");
   }
 }
@@ -337,8 +339,24 @@ int copy_ith_op(ordinary_pipe_t *tmp_op, ordinary_pipe_t *current_op,
   }
 }
 
-void exec_cmds(cmd *localCmd, int *code) {
-  *code = SUCCESS;
+void scan(char *input, int *ith) {
+  int idx, i, j;
+  idx = j = 0;
+  *ith = -1;
+  for (i = 1; i < strlen(input); i++) {
+    if (isdigit(input[i])) {
+      if (input[i - 1] == '|') {
+        idx++;
+      } else if (input[i - 1] == '!') {
+        ith[j++] = idx;
+        idx++;
+        input[i - 1] = '|';
+      }
+    }
+  }
+}
+
+void exec_cmds(cmd *localCmd) {
   if (localCmd->cnt == 1) {
     execlp(localCmd->terms[0], localCmd->terms[0], NULL);
   } else if (localCmd->cnt == 2) {
@@ -351,10 +369,10 @@ void exec_cmds(cmd *localCmd, int *code) {
            localCmd->terms[2], localCmd->terms[3], NULL);
   }
   printf("Unknown command: [%s].\n", localCmd->terms[0]);
-  *code = FAILURE;
+  exit(EXIT_FAILURE);
 }
 
-void reset_OP(ordinary_pipe_t *current_op) {
+void reset(ordinary_pipe_t *current_op, int *ith) {
   cmd *localCmd;
   int i, j;
   for (i = 0; i < current_op->cnt; i++) {
@@ -365,12 +383,16 @@ void reset_OP(ordinary_pipe_t *current_op) {
     localCmd->cnt = 0;
   }
   current_op->cnt = 0;
+
+  for (i = 0; i < EX_LIMIT; i++) {
+    ith[i] = -1;
+  }
 }
 
 void show(ordinary_pipe_t *localOP) {
   int x, y;
   cmd *localCmd;
-  printf("Commands amount: %d\n", localOP->cnt);
+  printf("Commands amount: %d\tEX flg:%d\n", localOP->cnt, localOP->ex_flg);
 
   for (x = 0; x < 3; x++) {
     localCmd = &(localOP->cmds[x]);
@@ -418,25 +440,9 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
       if (Node) {
         numbered_pipe(Node, 0);
       } else if (localOP->cnt == 1) {
-        //! It may be wrong, but tackle it later. Only ls is correct.
         localCmd = &(localOP->cmds[0]);
-        //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!I have do same
-        //! things if others have same requests.
-        if (localCmd->cnt == 1) {
-          execlp(localCmd->terms[0], localCmd->terms[0], NULL);
-        } else if (localCmd->cnt == 2) {
-          execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
-                 NULL);
-        } else if (localCmd->cnt == 3) {
-          execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
-                 localCmd->terms[2], NULL);
-        }
-        printf("Unknown command: [%s].\n", localCmd->terms[0]);
-        // perror("Unknown command: [%s]", localCmd->terms[0]);
-        // perror("Error");
-        exit(EXIT_FAILURE);
+        exec_cmds(localCmd);
       } else {
-        // ls | bin will crush.
         ordinary_pipe(localOP, localOP->cnt - 1);
       }
 
@@ -467,13 +473,7 @@ void trim(char *str) {
 
 void ordinary_pipe(ordinary_pipe_t *op, int index) {
   if (index == 0) {
-    if (op->cmds[index].cnt == 1) {
-      execlp(op->cmds[index].terms[0], op->cmds[index].terms[0], NULL);
-    } else if (op->cmds[index].cnt == 2) {
-      execlp(op->cmds[index].terms[0], op->cmds[index].terms[0],
-             op->cmds[index].terms[1], NULL);
-    }
-    return;
+    exec_cmds(&(op->cmds[index]));
   }
 
   int fds[2];
@@ -490,6 +490,9 @@ void ordinary_pipe(ordinary_pipe_t *op, int index) {
       perror("Error");
       exit(EXIT_FAILURE);
     case 0:
+      if (op->ex_flg) {
+        dup2(fds[1], STDERR_FILENO);
+      }
       dup2(fds[1], STDOUT_FILENO);
       close(fds[0]);
       close(fds[1]);
@@ -500,9 +503,7 @@ void ordinary_pipe(ordinary_pipe_t *op, int index) {
       dup2(fds[0], STDIN_FILENO);
       close(fds[0]);
       close(fds[1]);
-      execlp(op->cmds[index].terms[0], op->cmds[index].terms[0], NULL);
-      perror("Error");
-      exit(EXIT_FAILURE);
+      exec_cmds(&(op->cmds[index]));
   }
 }
 
@@ -547,6 +548,7 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
 
   if (!Node->chd_cnt) {
     op = &(Node->ops[op_idx]);
+		// printf("ZZZZZZZZZZZZZ%s\n", op->cmds[0].terms[0]);
     ordinary_pipe(op, op->cnt - 1);
     return;
   }
@@ -558,13 +560,20 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
 
   localNode = Node->child[op_idx];
 
+	// printf("\n\n");
   for (j = 0; j < localNode->op_cnt; j++) {
+		// printf("aaaaaaaaaaa%s %d %d\n", localNode->ops[j].cmds[0].terms[0], localNode->ops[0].ex_flg, localNode->ops[0].cnt);
+    // printf("aaaaaaaaaaa%s %d %d\n", localNode->ops[1].cmds[0].terms[0], localNode->ops[1].ex_flg, localNode->ops[1].cnt);
     pid = fork();
     switch (pid) {
       case -1:
         perror("Error");
         exit(EXIT_FAILURE);
       case 0:
+        if (localNode->ops[j].ex_flg && localNode->ops[j].cnt == 1) {
+          dup2(fds[1], STDERR_FILENO);
+        }
+				// printf("ZZZZZZZZZZZZZ%s %s\n", localNode->ops[j].cmds[j].terms[0], localNode->ops[j].cmds[j].terms[1]);
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
@@ -575,14 +584,12 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
         break;
     }
   }
-
+	wait(NULL);
   dup2(fds[0], STDIN_FILENO);
   close(fds[0]);
   close(fds[1]);
   op = &(Node->ops[op_idx]);
-  // ordinary_pipe(op, op->cnt - 1);
-  execlp(Node->ops[op_idx].cmds[0].terms[0], Node->ops[op_idx].cmds[0].terms[0],
-         NULL);
+  exec_cmds(&(Node->ops[op_idx].cmds[0]));
 }
 
 void freeKnowNode(know_node *knowNode) {
@@ -593,7 +600,7 @@ void freeKnowNode(know_node *knowNode) {
 }
 
 void addInfo2ExistNode(number_pipe_t *Node, ordinary_pipe_t *current_op,
-                       int op_len) {
+                       int op_len, int *ith, int idx) {
   ordinary_pipe_t *localOP;
   cmd *localCmd, *currentCmd;
   int op_idx, i, j;
@@ -614,6 +621,14 @@ void addInfo2ExistNode(number_pipe_t *Node, ordinary_pipe_t *current_op,
     Node->ttl = tran2number(current_op->cmds[op_len].terms[0]);
   }
   Node->op_cnt++;
+
+  // set ex_flg
+  for (i = 0; i < EX_LIMIT; i++) {
+    if (ith[i] == idx) {
+      localOP->ex_flg = true;
+      break;
+    }
+  }
 }
 
 void show_node(know_node *knowNode) {
@@ -622,6 +637,7 @@ void show_node(know_node *knowNode) {
   ordinary_pipe_t *localOP;
   cmd *localCmd;
 
+  printf("***********************************************\n");
   for (i = 0; i < knowNode->cnt; i++) {
     localNode = knowNode->record[i];
     printf("ttl: %d\n", localNode->ttl);
@@ -634,10 +650,11 @@ void show_node(know_node *knowNode) {
         }
         printf("|\t");
       }
+      printf("\t%d", localOP->ex_flg);
       printf("\n");
     }
   }
-  printf("*************************\n");
+  printf("***********************************************\n");
 }
 
 bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
@@ -663,14 +680,6 @@ bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
         *ifNumberPipe = true;
         break;
       }
-    }
-
-    if (isdigit_myself(localCmd->terms[0]) &&
-        tran2number(localCmd->terms[0]) != IMPOSSIBLE) {
-      legal_flg = true;
-      *OP_len = i;
-      *ifNumberPipe = true;
-      break;
     }
     if (!legal_flg) {
       strcpy(illegal_term, localCmd->terms[0]);
