@@ -14,12 +14,14 @@
 #define CMD_PER_OP_LIMIT 100
 #define CHILD_LIMIT 100
 #define NODE_LIMIT 5000
+#define SUCCESS 0
+#define FAILURE 1
 #define VALID_CMD                                                           \
   {                                                                         \
     "printenv", "setenv", "ls", "cat", "removetag", "removetag0", "number", \
-        "exit"                                                              \
+        "exit", "noop", "wc"                                                \
   }
-#define VALID_CMD_NUM 8
+#define VALID_CMD_NUM 10
 #define bool int
 #define IMPOSSIBLE 2147483647
 #define true 1
@@ -83,6 +85,7 @@ int main(void) {
   cmd *localCmd;
   ordinary_pipe_t current_op, tmp_op;
 
+  setenv("PATH", "bin:.", 1);
   printf("%% ");
   while (fgets(input, LENGTH_LIMIT, stdin)) {
     // reset
@@ -104,7 +107,7 @@ int main(void) {
       for (i = 0; i < np_cnt + 1; i++) {
         targetNode = newNode = parentNode = NULL;
         memset(&tmp_op, 0, sizeof(ordinary_pipe_t));
-        // show(&current_op);
+
         start_index = copy_ith_op(&tmp_op, &current_op, start_index);
         if (start_index == -1) {
           break;
@@ -189,7 +192,8 @@ int main(void) {
         }
       }
     }
-
+    // show(&current_op);
+		show_node(&knowNode);
     printf("%% ");
   }
 }
@@ -333,6 +337,23 @@ int copy_ith_op(ordinary_pipe_t *tmp_op, ordinary_pipe_t *current_op,
   }
 }
 
+void exec_cmds(cmd *localCmd, int *code) {
+  *code = SUCCESS;
+  if (localCmd->cnt == 1) {
+    execlp(localCmd->terms[0], localCmd->terms[0], NULL);
+  } else if (localCmd->cnt == 2) {
+    execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1], NULL);
+  } else if (localCmd->cnt == 3) {
+    execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
+           localCmd->terms[2], NULL);
+  } else if (localCmd->cnt == 4) {
+    execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
+           localCmd->terms[2], localCmd->terms[3], NULL);
+  }
+  printf("Unknown command: [%s].\n", localCmd->terms[0]);
+  *code = FAILURE;
+}
+
 void reset_OP(ordinary_pipe_t *current_op) {
   cmd *localCmd;
   int i, j;
@@ -385,7 +406,7 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
       exit(EXIT_FAILURE);
     case 0:
       if (*filename) {
-        fd = open(filename, O_WRONLY | O_CREAT, S_IRWXU);
+        fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
         if (fd == -1) {
           perror("Error");
           exit(EXIT_FAILURE);
@@ -399,13 +420,20 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
       } else if (localOP->cnt == 1) {
         //! It may be wrong, but tackle it later. Only ls is correct.
         localCmd = &(localOP->cmds[0]);
+        //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!I have do same
+        //! things if others have same requests.
         if (localCmd->cnt == 1) {
           execlp(localCmd->terms[0], localCmd->terms[0], NULL);
-        } else if (localCmd->cnt > 1) {
+        } else if (localCmd->cnt == 2) {
           execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
                  NULL);
+        } else if (localCmd->cnt == 3) {
+          execlp(localCmd->terms[0], localCmd->terms[0], localCmd->terms[1],
+                 localCmd->terms[2], NULL);
         }
-        perror("Error");
+        printf("Unknown command: [%s].\n", localCmd->terms[0]);
+        // perror("Unknown command: [%s]", localCmd->terms[0]);
+        // perror("Error");
         exit(EXIT_FAILURE);
       } else {
         // ls | bin will crush.
@@ -614,7 +642,7 @@ void show_node(know_node *knowNode) {
 
 bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
                  int *OP_len) {
-  int i, j;
+  int i, j, code;
   bool legal_flg;
   char *valid_cmd[VALID_CMD_NUM] = VALID_CMD;
   cmd *localCmd;
@@ -622,8 +650,8 @@ bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
   for (i = 0; i < op->cnt; i++) {
     legal_flg = false;
     localCmd = &(op->cmds[i]);
+    *OP_len = i + 1;
     for (j = 0; j < VALID_CMD_NUM; j++) {
-      *OP_len = i + 1;
       if (!strcmp(localCmd->terms[0], valid_cmd[j])) {
         legal_flg = true;
         break;
@@ -635,6 +663,14 @@ bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
         *ifNumberPipe = true;
         break;
       }
+    }
+
+    if (isdigit_myself(localCmd->terms[0]) &&
+        tran2number(localCmd->terms[0]) != IMPOSSIBLE) {
+      legal_flg = true;
+      *OP_len = i;
+      *ifNumberPipe = true;
+      break;
     }
     if (!legal_flg) {
       strcpy(illegal_term, localCmd->terms[0]);

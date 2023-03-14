@@ -1,11 +1,9 @@
-% % % Error: No such file or directory
-% Error: No such file or directory
-% % %      1	number |1
-     2	number |2
-     3	cat -n file1.txt
-     4	
-     5	wc -c
-     6	exit
-% % Unknown command: [wc].
-% % Unknown command: [wc].
+% % % % Usage:test.html <file>
+% % %      1	   1 <!test.html>
+     2	   2 <TITLE>Test</TITLE>
+     3	   3 <BODY>This is a <b>test</b> program
+     4	   4 for ras.
+     5	   5 </BODY>
+% % 0
+% % 0
 % 

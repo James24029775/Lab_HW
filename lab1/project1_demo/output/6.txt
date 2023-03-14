@@ -1,4 +1,4 @@
 % Unknown command: [manyblessings].
 % Unknown command: [manyblessings].
-% % Unknown command: [wc].
+% % 0
 % 

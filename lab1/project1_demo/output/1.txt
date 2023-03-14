@@ -1,9 +1,16 @@
-% % bin
+% bin:.
+% bin
 test.html
 % % .
-% Error: No such file or directory
-% % bin
-test.html
+% Unknown command: [ls].
+% % cat
+ls
+manyblessings
+noop
+number
+removetag
+removetag0
+wc
 % Unknown command: [date].
 % % % DEF
 % 

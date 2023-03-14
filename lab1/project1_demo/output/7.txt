@@ -1,6 +1,7 @@
-% % % Unknown command: [wc].
-% % Unknown command: [wc].
-% % % Unknown command: [wc].
-% Unknown command: [wc].
+% % %       7      19      98
+% % bin
+test.html
+% %       2       2      14
+%       2       2      14
 % Unknown command: [exi].
 % 
