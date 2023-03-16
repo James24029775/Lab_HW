@@ -75,7 +75,7 @@ void adoptChild(number_pipe_t *, number_pipe_t *);
 void numbered_pipe(number_pipe_t *, int);
 void freeKnowNode(know_node *);
 void addInfo2ExistNode(number_pipe_t *, ordinary_pipe_t *, int, int *, int);
-void ordinary_pipe(ordinary_pipe_t *);
+void ordinary_pipe(ordinary_pipe_t *, int);
 bool check_valid(ordinary_pipe_t *, char *, bool *, int *, CMD_dict *);
 bool isdigit_myself(char *);
 number_pipe_t *createNode(know_node *);
@@ -91,9 +91,6 @@ int main(void) {
   number_pipe_t *targetNode, *newNode, *parentNode;
   cmd *localCmd;
   ordinary_pipe_t current_op, tmp_op;
-
-  // register signal
-  // signal(SIGCHLD, SIG_IGN);
 
   setenv("PATH", "bin:.", 1);
   reset_dict(&valid_cmd_dict);
@@ -206,10 +203,7 @@ int main(void) {
         bin_func(&current_op, filename, newNode);
       }
       // 3.
-			
       else {
-				// show(&current_op);
-
         localCmd = &(current_op.cmds[0]);
         if (!strcmp(localCmd->terms[0], "printenv")) {
           printenv(localCmd->terms, localCmd->cnt);
@@ -223,7 +217,6 @@ int main(void) {
         }
       }
     }
-		// show_node(&knowNode);
     printf("%% ");
   }
   show_node(&knowNode);
@@ -497,7 +490,7 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
       if (Node) {
         numbered_pipe(Node, 0);
       } else {
-        ordinary_pipe(localOP);
+        ordinary_pipe(localOP, localOP->cnt - 1);
       }
 
     default:
@@ -525,52 +518,40 @@ void trim(char *str) {
   }
 }
 
-void ordinary_pipe(ordinary_pipe_t *op) {
-  int *fds, fds_size;
-  int cmd_cnt = op->cnt, status;
-  int i, j;
+void ordinary_pipe(ordinary_pipe_t *op, int index) {
+  if (index == 0) {
+    exec_cmds(&(op->cmds[index]));
+  }
+
+  int fds[2];
+  if (pipe(fds) == -1) {
+    perror("Error");
+    exit(EXIT_FAILURE);
+  }
+
   pid_t pid;
+  pid = fork();
 
-  fds_size = 2*(op->cnt-1);
-  fds = (int*) malloc (fds_size*sizeof(int));
-
-  for (i = 0; i < cmd_cnt-1; i++){
-    if (pipe(fds+i*2) < 0) {
+  switch (pid) {
+    case -1:
       perror("Error");
       exit(EXIT_FAILURE);
-    };
-  }
-
-  for ( i = 0; i < cmd_cnt; i++ ){
-      pid = fork();
-      if (pid == -1) {
-          printf("fork failed\n");
-          exit(1);
+    case 0:
+      if (op->ex_flg) {
+        dup2(fds[1], STDERR_FILENO);
       }
-
-      if (pid == 0){
-          if (i != 0){
-              if (dup2(fds[(i-1)*2], STDIN_FILENO) < 0) {perror("dup2"); exit(1);};
-          }
-
-          if (i != cmd_cnt-1){
-              if (dup2(fds[2*i+1], STDOUT_FILENO) < 0) {perror("dup2"); exit(1);};
-          }
-          for ( j = 0; j < fds_size; j++ ){
-              close(fds[j]);
-          }
-          exec_cmds(&(op->cmds[i]));
-      }
-      else{
-        // wait(NULL);
-			  waitpid(pid, &status, WNOHANG);
-      }
+      dup2(fds[1], STDOUT_FILENO);
+      close(fds[0]);
+      close(fds[1]);
+      ordinary_pipe(op, index - 1);
+      perror("Error");
+      exit(EXIT_FAILURE);
+    default:
+      dup2(fds[0], STDIN_FILENO);
+      close(fds[0]);
+      close(fds[1]);
+      exec_cmds(&(op->cmds[index]));
   }
-  for ( i = 0; i < fds_size; i++ ){
-    close(fds[i]);
-  }
-  free(fds);
-  exit(EXIT_SUCCESS);
 }
 
 void minus_ttl(know_node *knowNode) {
@@ -614,7 +595,7 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
 
   if (!Node->chd_cnt) {
     op = &(Node->ops[op_idx]);
-    ordinary_pipe(op);
+    ordinary_pipe(op, op->cnt - 1);
     return;
   }
 
