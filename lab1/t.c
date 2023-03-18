@@ -44,14 +44,46 @@ void ordinary_pipe(char t[100][100]) {
         close(fds[i]);
     }
  }
+ void sig_handler(){
+    pid_t pid;
+    int stat;
+    while((pid = waitpid(-1, &stat, WNOHANG)) > 0){}
+    return;
+}
 
 int main()
 {
 
-    char t[100][100] = {"ls", "bin/number", "bin/number", "wc"};
-    // char t1[100] = "ls";
-    // char t2[100] = "bin/number";
-    // char t3[100] = "wc";
+    // char t[100][100] = {"ls", "bin/number", "bin/number", "wc"};
+    // // char t1[100] = "ls";
+    // // char t2[100] = "bin/number";
+    // // char t3[100] = "wc";
 
-    ordinary_pipe(t);
+    // ordinary_pipe(t);
+    pid_t pid1, pid[100];
+    // signal(SIGCHLD, SIG_IGN);
+    int i;
+    for(i = 0 ; i < 100 ;i ++){
+        // pid[i] = fork();
+
+        // if(pid[i] == 0){
+        //     sleep(1);
+        //     printf("Process %d.\n", getpid());
+        //     exit(EXIT_SUCCESS);
+        // }
+
+        pid1 = fork();
+        if (pid1 == 0){
+            sleep(5);
+            printf("child process sleep 5 sec\n");
+            exit(EXIT_SUCCESS);
+        }
+    }
+    sleep(10);
+    printf("parent process sleep 10 sec\n");
+    
+
+
+    // printf("Process %d.\n", getpid());
+
 }
