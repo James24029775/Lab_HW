@@ -1,15 +1,16 @@
 % bin:.
-% % bin
+% bin
 test.html
-% .
+% % .
 % Unknown command: [ls].
-% % % Unknown command: [date].
-% % % cat
-DEFls
-
-% manyblessings
+% % cat
+ls
+manyblessings
 noop
 number
 removetag
 removetag0
 wc
+% Unknown command: [date].
+% % % DEF
+% 
