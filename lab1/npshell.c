@@ -45,7 +45,6 @@ typedef struct number_pipe_t {
     int op_cnt;
     int chd_cnt;
     int id;
-    int fd_in[CHILD_LIMIT], fd_out[CHILD_LIMIT];
 } number_pipe_t;
 
 typedef struct know_node {
@@ -621,56 +620,72 @@ void show_tree(number_pipe_t *Node) {
 }
 
 void adoptChild(number_pipe_t *parent, number_pipe_t *child) {
-    int *child_idx;
-    child_idx = &(parent->chd_cnt);
-    parent->child[*child_idx] = child;
-    (*child_idx)++;
+    // int *child_idx;
+    // child_idx = &(parent->chd_cnt);
+    // parent->child[*child_idx] = child;
+    // (*child_idx)++;
 
+    // child->parent = parent;
+
+    parent->child[parent->op_cnt-1] = child;
+    parent->chd_cnt = parent->op_cnt;
     child->parent = parent;
 }
 
-// void height(number_pipe_t *Node){
-//     int i, highest = 0;
-//     if (root == NULL){
-//         return 0;
-//     }
-//     else{
-//         for (i = 0 ; i < Node->chd_cnt ; i++){
-//             h = height(Node->child[i]);
-//             if (h > highest){
-//                 highest = h;
-//             }
-//         }
-//         return highest + 1;
-//     }
-// }
-
-// void currentLevel(number_pipe_t *Node, int level, int fd_idx) {
-//     int i;
-//     if (Node == NULL){
-//         return;
-//     }
-
-//     if (level == 0){
-//         for(i = 0 ; i < Node->chd_cnt ; i++){
-//             Node->fd_in[i] = fd_idx + 2 + i;
-//             Node->fd_out[i] = fd_idx + 3 + i;            
-//         }
-//     }
-//     else if( level > 0){
-//         currentLevel(number_pipe_t *Node, int level, int fd_idx)
-//     }
-// }
-
 void numbered_pipe(number_pipe_t *Node, int op_idx) {
-    // pid_t pid;
-    // int i, h;
+    pid_t pid;
+    int fds[2], i, j, stat;
+    number_pipe_t *localNode;
+    cmd *localCmd;
+    ordinary_pipe_t *op;
 
-    // h = height(Node);
-    // printf("Height: %d\n", h);
-    // for ( i = 0 ; i < h ; i++){
-    //     currentLevel(Node, i, -2);
-    // }
+    if (!Node->child[op_idx]) {
+        op = &(Node->ops[op_idx]);
+        if (op->cnt == 1){
+            exec_cmds(&(op->cmds[0]));
+        }
+        else{
+            ordinary_pipe(op);
+        }
+    }
+
+    if (pipe(fds) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
+
+    localNode = Node->child[op_idx];
+
+    for (j = 0; j < localNode->op_cnt; j++) {
+        pid = fork();
+        switch (pid) {
+            case -1:
+                perror("Error");
+                exit(EXIT_FAILURE);
+            case 0:
+                // show(&(localNode->ops[j]));
+                if (localNode->ops[j].ex_flg && localNode->ops[j].cnt == 1) {
+                    dup2(fds[1], STDERR_FILENO);
+                }
+                dup2(fds[1], STDOUT_FILENO);
+                close(fds[0]);
+                close(fds[1]);
+                
+                // if(localNode->ops[j].cnt == 1){
+                //     exec_cmds(&(localNode->ops[j].cmds[0]));
+                // }
+                // else{
+                numbered_pipe(localNode, j);
+                // }
+            default:
+                break;
+        }
+    }
+    dup2(fds[0], STDIN_FILENO);
+    close(fds[0]);
+    close(fds[1]);
+    op = &(Node->ops[op_idx]);
+    exec_cmds(&(Node->ops[op_idx].cmds[0]));
 }
 
 void freeKnowNode(know_node *knowNode) {
