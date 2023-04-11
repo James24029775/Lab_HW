@@ -1,231 +1,158 @@
-#include <ctype.h>
-#include <dirent.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#define LENGTH_LIMIT 15000
-#define DICT_LEN 1000
-#define CHAR_AMT_LIMIT 100
-#define TERM_AMT_LIMIT 5
-#define OP_PER_NODE_LIMIT 100
-#define CMD_PER_OP_LIMIT 5000
-#define CHILD_LIMIT 100
-#define NODE_LIMIT 5000
-#define EX_LIMIT 100
-#define VALID_CMD "printenv", "setenv", "exit"
-#define VALID_CMD_NUM 3
-#define bool int
-#define IMPOSSIBLE 2147483647
-#define true 1
-#define false 0
-
-static int ID = 0;
-
-typedef struct cmd {
-    char terms[TERM_AMT_LIMIT][CHAR_AMT_LIMIT];
-    int cnt;
-} cmd;
-
-typedef struct ordinary_pipe_t {
-    cmd cmds[CMD_PER_OP_LIMIT];
-    int cnt;
-    bool ex_flg;
-} ordinary_pipe_t;
-
-typedef struct number_pipe_t {
-    struct number_pipe_t *child[CHILD_LIMIT];
-    struct number_pipe_t *parent;
-    ordinary_pipe_t ops[OP_PER_NODE_LIMIT];
-    int ttl;
-    int op_cnt;
-    int chd_cnt;
-    int id;
-} number_pipe_t;
-
-typedef struct know_node {
-    number_pipe_t *record[NODE_LIMIT];
-    int cnt;
-} know_node;
-
-typedef struct CMD_dict {
-    char dict[DICT_LEN][DICT_LEN];
-    int cnt;
-} CMD_dict;
-
-int tran2number(char *);
-int split_terms(char *, ordinary_pipe_t *, char *);
-int copy_ith_op(ordinary_pipe_t *, ordinary_pipe_t *, int);
-void sig_handler();
-void reset_dict(CMD_dict *);
-void scan(char *, int *);
-void exec_cmds(cmd *);
-void reset(ordinary_pipe_t *, int *);
-void show(ordinary_pipe_t *);
-void printenv(char[TERM_AMT_LIMIT][CHAR_AMT_LIMIT], int);
-void bin_func(ordinary_pipe_t *, char *, number_pipe_t *);
-void trim(char *);
-void show_node(know_node *);
-void minus_ttl(know_node *);
-void show_tree(number_pipe_t *);
-void adoptChild(number_pipe_t *, number_pipe_t *);
-void numbered_pipe(number_pipe_t *, int);
-void freeKnowNode(know_node *);
-void addInfo2ExistNode(number_pipe_t *, ordinary_pipe_t *, int, int *, int);
-void ordinary_pipe(ordinary_pipe_t *);
-bool check_valid(ordinary_pipe_t *, char *, bool *, int *, CMD_dict *);
-bool isdigit_myself(char *);
-number_pipe_t *createNode(know_node *);
-number_pipe_t *getSpecificNode(know_node *, int);
-number_pipe_t *getParentNode(know_node *);
-
-int main(void) {
+// ERROR Case -> 有空再處理
+// 輸入錯的環境變數再輸入指令會報錯
+int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bool pipe_out_flg, int in_pipe_num, int out_pipe_num) {
     char input[LENGTH_LIMIT], illegal_term[LENGTH_LIMIT], filename[LENGTH_LIMIT];
     CMD_dict valid_cmd_dict;
     int cmd_amt, ttl, OP_len, np_cnt, i, start_index, ith[EX_LIMIT];
     bool ifNumberPipe, first_flg, ex_flg;
-    know_node knowNode;
-    number_pipe_t *targetNode, *newNode, *parentNode;
+    
     cmd *localCmd;
     ordinary_pipe_t current_op, tmp_op;
 
-    signal(SIGCHLD, SIG_IGN);
-    setenv("PATH", "bin:.", 1);
     reset_dict(&valid_cmd_dict);
-    printf("%% ");
-    while (fgets(input, LENGTH_LIMIT, stdin)) {
-        if (!strcmp(input, "\n")) {
-            printf("%% ");
-            continue;
-        }
-        // reset
-        char *terms[LENGTH_LIMIT][TERM_AMT_LIMIT];
-        cmd_amt = OP_len = start_index = 0;
-        ifNumberPipe = ex_flg = false;
-        memset(filename, 0, LENGTH_LIMIT);
-        reset(&current_op, ith);
-        memset(&current_op, 0, sizeof(ordinary_pipe_t));
-        scan(input, ith);
-        // Parse input and store info into a ordinary_pipe_t
-        np_cnt = split_terms(input, &current_op, filename);
-        memset(input, 0, LENGTH_LIMIT);
-        targetNode = newNode = parentNode = NULL;
 
-        // Minus every nodes' ttl to maintan number pipe DS.
-        minus_ttl(&knowNode);
-        targetNode = getSpecificNode(&knowNode, 0);
+    memcpy(input, instruction.c_str(), instruction.size());
 
-        /*
-        Priority: store info into a number_pipe_t -> end a number pipe request ->
-        other requests
-        1. when np_cnt > 0, which means there are some info should be saved into
-        number_pipe_t, or even be ended (number test.html |1 number).
-          1.1. if ifNumberPipe is true, means the cmd should be saved.
-          1.2. else do the same things like 2.
-        2. when targetNode isn't empty and current cmd isn't also number pipe,
-        it's time to end a number pipe request.
-        3. Tackle remaining requests, e.g. ordinary pipe, normal commands, etc.
-        */
+    // Original while
+    if (!strcmp(input, "\n")) {
+        return 0;
+    }
+    // reset
+    char *terms[LENGTH_LIMIT][TERM_AMT_LIMIT];
+    cmd_amt = OP_len = start_index = 0;
+    ifNumberPipe = ex_flg = false;
+    memset(filename, 0, LENGTH_LIMIT);
+    reset(&current_op, ith);
+    memset(&current_op, 0, sizeof(ordinary_pipe_t));
+    scan(input, ith);
+    // Parse input and store info into a ordinary_pipe_t
+    np_cnt = split_terms(input, &current_op, filename);
+    memset(input, 0, LENGTH_LIMIT);
 
-        // 1.
-        if (np_cnt) {
-            first_flg = true;
-            for (i = 0; i < np_cnt + 1; i++) {
-                targetNode = newNode = parentNode = NULL;
-                memset(&tmp_op, 0, sizeof(ordinary_pipe_t));
-                start_index = copy_ith_op(&tmp_op, &current_op, start_index);
-                if (start_index == -1) {
-                    break;
-                }
+    // // Minus every nodes' ttl to maintan number pipe DS.
+    // minus_ttl(&knowNode[cli]);
+    targetNode[cli] = getSpecificNode(&knowNode[cli], 0);
 
-                if (!check_valid(&tmp_op, illegal_term, &ifNumberPipe, &OP_len,
-                                 &valid_cmd_dict)) {
-                    printf("Unknown command: [%s].\n", illegal_term);
-                    printf("%% ");
-                    continue;
-                }
+    /*
+    Priority: store info into a number_pipe_t -> end a number pipe request ->
+    other requests
+    1. when np_cnt > 0, which means there are some info should be saved into
+    number_pipe_t, or even be ended (number test.html |1 number).
+        1.1. if ifNumberPipe is true, means the cmd should be saved.
+        1.2. else do the same things like 2.
+    2. when targetNode isn't empty and current cmd isn't also number pipe,
+    it's time to end a number pipe request.
+    3. Tackle remaining requests, e.g. ordinary pipe, normal commands, etc.
+    */
 
-                if (strlen(tmp_op.cmds[OP_len].terms[0]) == 0) {
-                    ifNumberPipe = false;
-                }
+    // 1.
+    if (np_cnt) {
+        first_flg = true;
+        for (i = 0; i < np_cnt + 1; i++) {
+            targetNode[cli] = newNode[cli] = parentNode[cli] = NULL;
+            memset(&tmp_op, 0, sizeof(ordinary_pipe_t));
+            start_index = copy_ith_op(&tmp_op, &current_op, start_index);
+            if (in_pipe_num > 0) {
+                in_pipe_num_v[cli].push_back(in_pipe_num);
+                tmp_op.in_pipe_num = in_pipe_num;
+            }
+            if (start_index == -1) {
+                break;
+            }
 
-                if (first_flg) {
-                    first_flg = false;
-                } else {
-                    minus_ttl(&knowNode);
-                }
-                targetNode = getSpecificNode(&knowNode, 0);
-                // 1.1.
-                if (ifNumberPipe) {
-                    ttl = tran2number(tmp_op.cmds[OP_len].terms[0]);
-                    if (targetNode) {
-                        parentNode = getSpecificNode(&knowNode, ttl);
-                        if (parentNode) {
-                            addInfo2ExistNode(parentNode, &tmp_op, OP_len, ith, i);
-                            adoptChild(parentNode, targetNode);
-                        } else {
-                            newNode = createNode(&knowNode);
-                            addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
-                            adoptChild(newNode, targetNode);
-                        }
+            if (!check_valid(&tmp_op, illegal_term, &ifNumberPipe, &OP_len,
+                                &valid_cmd_dict)) {
+                string msg = "Unknown command: [" + string(illegal_term) + "].\n";
+                write(sockfd, msg.c_str(), msg.length());
+                return 0;
+            }
+            cout << "1.0------------0" << endl;
+            if (strlen(tmp_op.cmds[OP_len].terms[0]) == 0) {
+                ifNumberPipe = false;
+            }
+
+            if (first_flg) {
+                first_flg = false;
+            } else {
+                minus_ttl(&knowNode[cli]);
+            }
+            targetNode[cli] = getSpecificNode(&knowNode[cli], 0);
+            // 1.1.
+            if (ifNumberPipe) {
+                ttl = tran2number(tmp_op.cmds[OP_len].terms[0]);
+                if (targetNode[cli]) {
+                    cout << "1.1------------1" << endl;
+                    parentNode[cli] = getSpecificNode(&knowNode[cli], ttl);
+                    if (parentNode) {
+                        addInfo2ExistNode(parentNode[cli], &tmp_op, OP_len, ith, i);
+                        adoptChild(parentNode[cli], targetNode[cli]);
                     } else {
-                        targetNode = getSpecificNode(&knowNode, ttl);
-                        if (targetNode) {
-                            addInfo2ExistNode(targetNode, &tmp_op, OP_len, ith, i);
-                        } else {
-                            newNode = createNode(&knowNode);
-                            addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
-                        }
+                        newNode[cli] = createNode(&knowNode[cli]);
+                        addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
+                        adoptChild(newNode[cli], targetNode[cli]);
+                    }
+                } else {
+                    cout << "1.1------------2" << endl;
+                    targetNode[cli] = getSpecificNode(&knowNode[cli], ttl);
+                    if (targetNode[cli]) {
+                        addInfo2ExistNode(targetNode[cli], &tmp_op, OP_len, ith, i);
+                    } else {
+                        newNode[cli] = createNode(&knowNode[cli]);
+                        addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
                     }
                 }
-                // 1.2.
-                else if (targetNode) {
-                    newNode = createNode(&knowNode);
-                    addInfo2ExistNode(newNode, &tmp_op, OP_len, ith, i);
-                    adoptChild(newNode, targetNode);
-                    bin_func(&tmp_op, filename, newNode);
-                }
             }
-        } else {
-            if (!check_valid(&current_op, illegal_term, &ifNumberPipe, &OP_len,
-                             &valid_cmd_dict)) {
-                printf("Unknown command: [%s].\n", illegal_term);
-                printf("%% ");
-                continue;
-            }
-            // 2.
-            if (targetNode) {
-                newNode = createNode(&knowNode);
-                addInfo2ExistNode(newNode, &current_op, OP_len, ith, -2);
-                adoptChild(newNode, targetNode);
-                bin_func(&current_op, filename, newNode);
-            }
-            // 3.
-
-            else {
-                // show(&current_op);
-
-                localCmd = &(current_op.cmds[0]);
-                if (!strcmp(localCmd->terms[0], "printenv")) {
-                    printenv(localCmd->terms, localCmd->cnt);
-                } else if (!strcmp(localCmd->terms[0], "setenv")) {
-                    setenv(localCmd->terms[1], localCmd->terms[2], 1);
-                    reset_dict(&valid_cmd_dict);
-                } else if (!strcmp(localCmd->terms[0], "exit")) {
-                    exit(EXIT_SUCCESS);
-                } else {
-                    bin_func(&current_op, filename, newNode);
-                }
+            // 1.2.
+            else if (targetNode[cli]) {
+                cout << "1.2------------1" << endl;
+                newNode[cli] = createNode(&knowNode[cli]);
+                cout << "1.2.-0" << endl;
+                addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
+                cout << "1.2.-1" << endl;
+                adoptChild(newNode[cli], targetNode[cli]);
+                cout << "1.2.-2" << endl;
+                bin_func(&tmp_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
+                cout << "1.2.-3" << endl;
             }
         }
-        // show_node(&knowNode);
-        printf("%% ");
+    } else {
+        if (!check_valid(&current_op, illegal_term, &ifNumberPipe, &OP_len,
+                            &valid_cmd_dict)) {
+            cout << "Y111" << endl;
+            string msg = "Unknown command: [" + string(illegal_term) + "].\n";
+            write(sockfd, msg.c_str(), msg.length());
+            return 0;
+        }
+        // 2.
+        if (targetNode[cli]) {
+            cout << "Y222" << endl;
+            newNode[cli] = createNode(&knowNode[cli]);
+            addInfo2ExistNode(newNode[cli], &current_op, OP_len, ith, -2);
+            adoptChild(newNode[cli], targetNode[cli]);
+            bin_func(&current_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
+        }
+        // 3.
+        else {
+            cout << "Y333" << endl;
+            localCmd = &(current_op.cmds[0]);
+            if (!strcmp(localCmd->terms[0], "printenv")) {
+                cout << "Y333-1" << endl;
+                // Error condition check, if need?
+                string msg = env[cli][localCmd->terms[1]] + "\n";
+                write(sockfd, msg.c_str(), msg.length());
+            } else if (!strcmp(localCmd->terms[0], "setenv")) {
+                cout << "Y333-2" << endl;
+                // Error condition check, if need?
+                env[cli][localCmd->terms[1]] = localCmd->terms[2];
+                reset_dict(&valid_cmd_dict);
+            } else {
+                cout << "Y333-3" << endl;
+                bin_func(&current_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
+            }
+        }
     }
-    show_node(&knowNode);
+
+    // show_node(&knowNode[cli]);
 }
 
 int tran2number(char *term) {
@@ -408,7 +335,6 @@ void reset_dict(CMD_dict *valid_cmd_dict) {
     i = 0;
     while (p != NULL) {
         dir = opendir(p);
-
         while ((ent = readdir(dir)) != NULL) {
             strcpy(valid_cmd_dict->dict[i++], ent->d_name);
             valid_cmd_dict->cnt++;
@@ -418,25 +344,22 @@ void reset_dict(CMD_dict *valid_cmd_dict) {
     }
 }
 
-void exec_cmds(cmd *localCmd) {
-    char **tmp;
-    int i;
-    tmp = (char**)malloc(sizeof(char*)*TERM_AMT_LIMIT);
-    for(i = 0 ; i < TERM_AMT_LIMIT ; i++){
-        tmp[i] = (char*)malloc(sizeof(char)*LENGTH_LIMIT);
+void exec_cmds(cmd *localCmd, bool pipe_in_flg) {
+    if (localCmd->cnt == 1 && strcmp(localCmd->terms[0], "ls") && !pipe_in_flg){
+        exit(EXIT_FAILURE);
     }
-    for(i = 0 ; i < localCmd->cnt; i++){
-        strcpy(tmp[i], localCmd->terms[i]);
+    char *argv[localCmd->cnt+1];
+    for(int i=0; i<localCmd->cnt; i++){
+        char tmp_buf[MAXLEN];
+        strcpy(tmp_buf, localCmd->terms[i]);
+        argv[i] = strdup(tmp_buf);
     }
-    tmp[i] = NULL;
-    execvp(tmp[0], tmp);
-
-    for(i = 0 ; i < TERM_AMT_LIMIT; i++){
-        free(tmp[i]);
+    argv[localCmd->cnt] = NULL;
+    int err = execvp(argv[0], argv);
+    if(err != 0){
+        printf("Unknown command: [%s].\n", localCmd->terms[0]);
+        exit(EXIT_FAILURE);
     }
-
-    printf("Unknown command: [%s].\n", localCmd->terms[0]);
-    exit(EXIT_FAILURE);
 }
 
 void reset(ordinary_pipe_t *current_op, int *ith) {
@@ -460,6 +383,7 @@ void show(ordinary_pipe_t *localOP) {
     int x, y;
     cmd *localCmd;
     printf("Commands amount: %d\tEX flg:%d\n", localOP->cnt, localOP->ex_flg);
+    cout << "USER PIPE IN: " << localOP->in_pipe_num << endl;
 
     for (x = 0; x < 3; x++) {
         localCmd = &(localOP->cmds[x]);
@@ -483,7 +407,7 @@ void printenv(char terms[TERM_AMT_LIMIT][CHAR_AMT_LIMIT], int cmd_amt) {
     }
 }
 
-void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
+void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int sockfd, int cli, bool pipe_in_flg, bool pipe_out_flg, int in_pipe_num, int out_pipe_num) {
     int fd;
     cmd *localCmd;
     pid_t pid;
@@ -503,23 +427,73 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node) {
                 }
                 dup2(fd, STDOUT_FILENO);
                 close(fd);
-            }
-
-            if (Node) {
-                printf("HERE-1\n");
-                numbered_pipe(Node, 0);
-            } else if (localOP->cnt == 1) {
-                printf("HERE-2\n");
-                exec_cmds(localOP->cmds);
             } else {
-                printf("HERE-3\n");
-                ordinary_pipe(localOP);
+                dup2(sockfd, 1);
+                dup2(sockfd, 2);
+            }
+            
+            // cout << "HERE" << endl;
+            
+            if (Node) {
+                // cout << "HERE-1" << endl;
+                numbered_pipe(Node, 0, cli, out_pipe_num);
+            } else if (in_pipe_num >= 0) {
+                if (localOP->cnt == 1) {
+                    // cout << "HERE-2" << endl;
+                    user_pipe_redirect(in_pipe_num, out_pipe_num, cli);
+                    exec_cmds(localOP->cmds, pipe_in_flg);
+                } else {
+                    // cout << "HERE-3" << endl;
+                    ordinary_pipe(localOP, cli, in_pipe_num, out_pipe_num);
+                }
             }
 
         default:
+            //! 不確定user_pipe_out是否要關閉
+            if(in_pipe_num > 0){
+                close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+            } else if (Node) {
+                for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                    in_pipe_num = in_pipe_num_v[cli][i];
+                    close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                    close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                }
+            }
             wait(NULL);
+            if(in_pipe_num > 0){
+                used_user_pipe[in_pipe_num][cli].user_pipe[0] = -1;
+                used_user_pipe[in_pipe_num][cli].user_pipe[1] = -1;
+            } else if (Node) {
+                for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                    in_pipe_num = in_pipe_num_v[cli][i];
+                    used_user_pipe[in_pipe_num][cli].user_pipe[0] = -1;
+                    used_user_pipe[in_pipe_num][cli].user_pipe[1] = -1;
+                }
+                in_pipe_num_v[cli].clear();
+            }
             break;
     }
+}
+
+void user_pipe_redirect(int in_pipe_num, int out_pipe_num, int cli) {
+    // Redirect pipe in
+    if (in_pipe_num > 0) {
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+        dup2(used_user_pipe[in_pipe_num][cli].user_pipe[0], 0);
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+    }
+    else if (in_pipe_num < 0)
+        dup2(DEVNULLI, 0);
+    
+    // Redirect pipe out
+    if (out_pipe_num > 0) {
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+        dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
+    }
+    else if (out_pipe_num < 0)
+        dup2(DEVNULLO, 1);
 }
 
 void trim(char *str) {
@@ -539,7 +513,7 @@ void trim(char *str) {
     }
 }
 
-void ordinary_pipe(ordinary_pipe_t *op) {
+void ordinary_pipe(ordinary_pipe_t *op, int cli, int in_pipe_num, int out_pipe_num) {
     int *fds, fds_size;
     int cmd_cnt = op->cnt, status;
     int i, j;
@@ -547,7 +521,6 @@ void ordinary_pipe(ordinary_pipe_t *op) {
     
     // register signal
     signal(SIGCHLD, SIG_IGN);
-    // signal(SIGCHLD, sig_handler);
 
     fds_size = 2 * (op->cnt - 1);
     fds = (int *)malloc(fds_size * sizeof(int));
@@ -558,7 +531,6 @@ void ordinary_pipe(ordinary_pipe_t *op) {
             exit(EXIT_FAILURE);
         };
     }
-
     for (i = 0; i < cmd_cnt - 1; i++) {
         pid = fork();
         if (pid == -1) {
@@ -568,10 +540,19 @@ void ordinary_pipe(ordinary_pipe_t *op) {
 
         if (pid == 0) {
             if (i != 0) {
+                if (in_pipe_num > 0) {
+                    close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                    close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                }
                 if (dup2(fds[(i - 1) * 2], STDIN_FILENO) < 0) {
                     perror("dup2");
                     exit(1);
                 };
+            }
+            else if (in_pipe_num > 0){
+                close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                dup2(used_user_pipe[in_pipe_num][cli].user_pipe[0], 0);
+                close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
             }
             
             if (dup2(fds[2 * i + 1], STDOUT_FILENO) < 0) {
@@ -582,21 +563,34 @@ void ordinary_pipe(ordinary_pipe_t *op) {
                 close(fds[j]);
             }
             
-            exec_cmds(&(op->cmds[i]));
-        } else {
-            // waitpid(pid, &status, WNOHANG);
-            // wait(NULL);
+            exec_cmds(&(op->cmds[i]), UNKNOWN);
         }
     }
+    if (in_pipe_num > 0) {
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+    }
+
     if (dup2(fds[((cmd_cnt-1) - 1) * 2], STDIN_FILENO) < 0) {
         perror("dup2");
         exit(1);
     };
-    for (i = 0; i < fds_size; i++) {
-        close(fds[i]);
+
+    // Redirect pipe out
+    if (out_pipe_num > 0) {
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+        dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
     }
+    else if (out_pipe_num < 0)
+        dup2(DEVNULLO, 1);
+
+    for (j = 0; j < fds_size; j++) {
+        close(fds[j]);
+    }
+
     free(fds);
-    exec_cmds(&(op->cmds[cmd_cnt - 1]));
+    exec_cmds(&(op->cmds[cmd_cnt - 1]), UNKNOWN);
 }
 
 void minus_ttl(know_node *knowNode) {
@@ -623,34 +617,31 @@ void show_tree(number_pipe_t *Node) {
 }
 
 void adoptChild(number_pipe_t *parent, number_pipe_t *child) {
-    // int *child_idx;
-    // child_idx = &(parent->chd_cnt);
-    // parent->child[*child_idx] = child;
-    // (*child_idx)++;
-
-    // child->parent = parent;
-
     parent->child[parent->op_cnt-1] = child;
     parent->chd_cnt = parent->op_cnt;
     child->parent = parent;
 }
 
-void numbered_pipe(number_pipe_t *Node, int op_idx) {
+//! cat <2 >2會出問題
+//! cat <2 |1會錯，number pipe function還沒改
+void numbered_pipe(number_pipe_t *Node, int op_idx, int cli, int out_pipe_num) {
     pid_t pid;
     int fds[2], i, j, stat;
+    int in_pipe_num;
     number_pipe_t *localNode;
     cmd *localCmd;
     ordinary_pipe_t *op;
 
     if (!Node->child[op_idx]) {
         op = &(Node->ops[op_idx]);
-        if (op->cnt == 1){
-            printf("WHAT1\n");
-            exec_cmds(&(op->cmds[0]));
-        }
-        else{
-            printf("WHAT1\n");
-            ordinary_pipe(op);
+        in_pipe_num = op->in_pipe_num;
+        if (in_pipe_num >= 0) {
+            if (op->cnt == 1){
+                exec_cmds(&(op->cmds[0]), UNKNOWN);
+            }
+            else{
+                ordinary_pipe(op, cli, in_pipe_num, out_pipe_num);
+            }
         }
     }
 
@@ -668,7 +659,21 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
                 perror("Error");
                 exit(EXIT_FAILURE);
             case 0:
-                // show(&(localNode->ops[j]));
+                if (localNode->ops[j].in_pipe_num <= 0) {
+                    for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                        in_pipe_num = in_pipe_num_v[cli][i];
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                    }
+                } else {
+                    // Redirect pipe in
+                    in_pipe_num = localNode->ops[j].in_pipe_num;
+                    if (in_pipe_num > 0) {
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                        dup2(used_user_pipe[in_pipe_num][cli].user_pipe[0], 0);
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                    }
+                }
                 if (localNode->ops[j].ex_flg && localNode->ops[j].cnt == 1) {
                     dup2(fds[1], STDERR_FILENO);
                 }
@@ -676,22 +681,30 @@ void numbered_pipe(number_pipe_t *Node, int op_idx) {
                 close(fds[0]);
                 close(fds[1]);
                 
-                // if(localNode->ops[j].cnt == 1){
-                //     exec_cmds(&(localNode->ops[j].cmds[0]));
-                // }
-                // else{
-                numbered_pipe(localNode, j);
-                // }
+                numbered_pipe(localNode, j, cli, out_pipe_num);
+                break;
             default:
                 break;
         }
     }
+    //! 這裡應該要關掉的是那些曾經in_pipe_num不為0的
+    for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+        in_pipe_num = in_pipe_num_v[cli][i];
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+    }
+
+    if (!Node->parent && out_pipe_num > 0) {
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+        dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+        close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
+    }
+    
     dup2(fds[0], STDIN_FILENO);
     close(fds[0]);
     close(fds[1]);
     op = &(Node->ops[op_idx]);
-    printf("CHECK:%s\n", Node->ops[op_idx].cmds[0].terms[0]);
-    exec_cmds(&(Node->ops[op_idx].cmds[0]));
+    exec_cmds(&(Node->ops[op_idx].cmds[0]), UNKNOWN);
 }
 
 void freeKnowNode(know_node *knowNode) {
@@ -718,6 +731,8 @@ void addInfo2ExistNode(number_pipe_t *Node, ordinary_pipe_t *current_op,
         }
         localOP->cnt++;
     }
+    localOP->in_pipe_num = current_op->in_pipe_num;
+
     //! Maybe write it better.
     if (current_op->cnt != 1) {
         Node->ttl = tran2number(current_op->cmds[op_len].terms[0]);
@@ -787,6 +802,7 @@ bool check_valid(ordinary_pipe_t *op, char *illegal_term, bool *ifNumberPipe,
                 legal_flg = true;
                 break;
             }
+            // cout << "FFFFFFFFFFFF" << localCmd->terms[0] << endl;
             if (isdigit_myself(localCmd->terms[0]) &&
                 tran2number(localCmd->terms[0]) != IMPOSSIBLE) {
                 legal_flg = true;
@@ -816,20 +832,20 @@ bool isdigit_myself(char *term) {
 }
 
 number_pipe_t *createNode(know_node *knowNode) {
-    number_pipe_t *newNode;
+    number_pipe_t *AnewNode;
     int *idx;
 
-    newNode = malloc(sizeof(number_pipe_t));
-    memset(newNode, 0, sizeof(number_pipe_t));
+    AnewNode = (number_pipe_t*)malloc(sizeof(number_pipe_t));
+    memset(AnewNode, 0, sizeof(number_pipe_t));
 
     idx = &knowNode->cnt;
-    knowNode->record[*idx] = newNode;
+    knowNode->record[*idx] = AnewNode;
     (*idx)++;
 
-    newNode->id = ID;
+    AnewNode->id = ID;
     ID++;
 
-    return newNode;
+    return AnewNode;
 }
 
 number_pipe_t *getSpecificNode(know_node *knowNode, int ttl) {
