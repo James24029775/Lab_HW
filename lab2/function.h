@@ -41,7 +41,7 @@ void choose_shell_cmd(vector<string> &arg, string input, int cli, int sockfd){
     }
 
     // Check user pipe
-    int user_pipe_num, in_user_pipe_num = 0, out_user_pipe_num = 0;
+    int user_pipe_num = 0, in_user_pipe_num = 0, out_user_pipe_num = 0;
     bool in_user_exist_flg = true, out_user_exist_flg = true;
     bool in_pipe_exist_flg = true, out_pipe_dup_flg = false;
     for (int i = 0; i < arg_num; i++){
@@ -103,6 +103,9 @@ void choose_shell_cmd(vector<string> &arg, string input, int cli, int sockfd){
             
         }
     }
+    cout << "WAAAAAAAAAIT: " << input << "  " << endl;
+    cout << "IN num " << in_user_pipe_num << " OUT num " << out_user_pipe_num << endl;
+    cout << "user_pipe_num " << user_pipe_num << " cli " << cli << endl;
     
     bool pipe_in_flg = false, pipe_out_flg = false;
     if (in_user_exist_flg && in_pipe_exist_flg && in_user_pipe_num > 0) pipe_in_flg = true;
@@ -143,6 +146,7 @@ void choose_shell_cmd(vector<string> &arg, string input, int cli, int sockfd){
     }
     instruction += "\n";
     shell_function(instruction, sockfd, cli, pipe_in_flg, pipe_out_flg, in_user_pipe_num, out_user_pipe_num);
+    
 
     // Reset environment argument
     for(auto iter=env[cli].begin(); iter != env[cli].end(); iter++)
@@ -173,9 +177,9 @@ void rwg_who(vector<string> args, int cli) {
     string msg = WHO_COLUMN;
     for (int i = 0; i < LISTENQ; i++) {
         if (client[i] > 0){
-            msg += to_string(i) + '\t' + name[i] + '\t' + ipaddr[i] + ':' + to_string(port[i]) + '\t';
+            msg += to_string(i) + '\t' + name[i] + '\t' + ipaddr[i] + ':' + to_string(port[i]);
             if (i == cli){
-                msg += "<-me";
+                msg +=  "\t<-me";
             }
             msg += '\n';
         }
@@ -238,22 +242,39 @@ void rwg_name(vector<string> args, int cli) {
     
     string msg;
     if (dupFlg) {
-        msg = "*** User " + args[1] + " already exists. ***\n";
+        msg = "*** User \'" + args[1] + "\' already exists. ***\n";
         if (write(client[cli], msg.c_str(), msg.size()) == -1) {
             cerr << "Error: Failed to write data to socket.\n";
             exit(EXIT_FAILURE);
         }
     } else {
         name[cli] = args[1];
-        msg = "*** User from " + ipaddr[cli] + ":" + to_string(port[cli]) + " is named "+ name[cli] +". ***\n";
+        msg = "*** User from " + ipaddr[cli] + ":" + to_string(port[cli]) + " is named \'"+ name[cli] +"\'. ***\n";
         broadcast(msg);
     }
 }
 
 void rwg_exit(vector<string> args, int cli) {
     string msg;
-    msg = "*** User " + name[cli] + " left. ***\n";
+    msg = "*** User \'" + name[cli] + "\' left. ***\n";
     broadcast(msg);
+
+    // Clean user pipe
+    for (int i = 0 ; i < LISTENQ ; i++){
+        used_user_pipe[i][cli].user_pipe[0] = -1;
+        used_user_pipe[i][cli].user_pipe[1] = -1;
+        used_user_pipe[cli][i].user_pipe[0] = -1;
+        used_user_pipe[cli][i].user_pipe[1] = -1;
+    }
+    in_pipe_num_v[cli].clear();
+    for(int j = 0; j < NODE_LIMIT; j++) {
+        knowNode[cli].record[j] = NULL;
+    }
+    knowNode[cli].cnt = 0;
+    newNode[cli] = NULL;
+    targetNode[cli] = NULL;
+    parentNode[cli] = NULL;
+
 
     // Reset and close connection
     close(client[cli]);

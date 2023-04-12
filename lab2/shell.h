@@ -13,6 +13,7 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
 
     memcpy(input, instruction.c_str(), instruction.size());
 
+    targetNode[cli] = newNode[cli] = parentNode[cli] = NULL;
     // Original while
     if (!strcmp(input, "\n")) {
         return 0;
@@ -83,7 +84,7 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
                 if (targetNode[cli]) {
                     cout << "1.1------------1" << endl;
                     parentNode[cli] = getSpecificNode(&knowNode[cli], ttl);
-                    if (parentNode) {
+                    if (parentNode[cli]) {
                         addInfo2ExistNode(parentNode[cli], &tmp_op, OP_len, ith, i);
                         adoptChild(parentNode[cli], targetNode[cli]);
                     } else {
@@ -106,13 +107,13 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
             else if (targetNode[cli]) {
                 cout << "1.2------------1" << endl;
                 newNode[cli] = createNode(&knowNode[cli]);
-                cout << "1.2.-0" << endl;
+                // cout << "1.2.-0" << endl;
                 addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
-                cout << "1.2.-1" << endl;
+                // cout << "1.2.-1" << endl;
                 adoptChild(newNode[cli], targetNode[cli]);
-                cout << "1.2.-2" << endl;
+                // cout << "1.2.-2" << endl;
                 bin_func(&tmp_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
-                cout << "1.2.-3" << endl;
+                // cout << "1.2.-3" << endl;
             }
         }
     } else {
@@ -431,7 +432,6 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int
                 dup2(sockfd, 1);
                 dup2(sockfd, 2);
             }
-            
             // cout << "HERE" << endl;
             
             if (Node) {
@@ -446,11 +446,14 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int
                     // cout << "HERE-3" << endl;
                     ordinary_pipe(localOP, cli, in_pipe_num, out_pipe_num);
                 }
+            } else {
+                exit(EXIT_SUCCESS);
             }
 
         default:
-            //! 不確定user_pipe_out是否要關閉
+            cout << "FFFFFFFFFFFFFFFFUC<MKK11111111111111" << endl;
             if(in_pipe_num > 0){
+                cout << "INNER11111111111111" << endl;
                 close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
                 close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
             } else if (Node) {
@@ -461,7 +464,9 @@ void bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int
                 }
             }
             wait(NULL);
+            cout << "FFFFFFFFFFFFFFFFUC<MKK222222222222" << endl;
             if(in_pipe_num > 0){
+                cout << "INNER222222222222222222" << endl;
                 used_user_pipe[in_pipe_num][cli].user_pipe[0] = -1;
                 used_user_pipe[in_pipe_num][cli].user_pipe[1] = -1;
             } else if (Node) {
@@ -627,10 +632,13 @@ void adoptChild(number_pipe_t *parent, number_pipe_t *child) {
 void numbered_pipe(number_pipe_t *Node, int op_idx, int cli, int out_pipe_num) {
     pid_t pid;
     int fds[2], i, j, stat;
-    int in_pipe_num;
+    int in_pipe_num, status;
+    bool first = true;
     number_pipe_t *localNode;
     cmd *localCmd;
     ordinary_pipe_t *op;
+    op = &(Node->ops[op_idx]);
+    in_pipe_num = op->in_pipe_num;
 
     if (!Node->child[op_idx]) {
         op = &(Node->ops[op_idx]);
@@ -684,27 +692,40 @@ void numbered_pipe(number_pipe_t *Node, int op_idx, int cli, int out_pipe_num) {
                 numbered_pipe(localNode, j, cli, out_pipe_num);
                 break;
             default:
+                if (first) {
+                    //! 這裡應該要關掉的是那些曾經in_pipe_num不為0的
+                    for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                        in_pipe_num = in_pipe_num_v[cli][i];
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                    }
+
+                    if (!Node->parent && out_pipe_num > 0) {
+                        close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+                        dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+                        close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
+                    }
+                }
+                first = false;
+                wait(NULL);
                 break;
         }
     }
-    //! 這裡應該要關掉的是那些曾經in_pipe_num不為0的
-    for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
-        in_pipe_num = in_pipe_num_v[cli][i];
-        close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
-        close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
-    }
-
-    if (!Node->parent && out_pipe_num > 0) {
-        close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
-        dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
-        close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
-    }
+    // waitpid(pid, &status, 0);
+    // wait(NULL);
+    
     
     dup2(fds[0], STDIN_FILENO);
     close(fds[0]);
     close(fds[1]);
     op = &(Node->ops[op_idx]);
-    exec_cmds(&(Node->ops[op_idx].cmds[0]), UNKNOWN);
+    // exec_cmds(&(Node->ops[op_idx].cmds[0]), UNKNOWN);
+    if (op->cnt == 1){
+        exec_cmds(&(Node->ops[op_idx].cmds[0]), UNKNOWN);
+    }
+    else{
+        ordinary_pipe(&(Node->ops[op_idx]), cli, in_pipe_num, out_pipe_num);
+    }
 }
 
 void freeKnowNode(know_node *knowNode) {
