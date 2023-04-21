@@ -29,6 +29,10 @@
 using namespace std;
 
 // shell define
+#include <sys/types.h>
+#include <netdb.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #define UNKNOWN true
 #define LENGTH_LIMIT 15000
 #define DICT_LEN 1000
@@ -46,6 +50,35 @@ using namespace std;
 #define true 1
 #define false 0
 
+// shared memory define
+#define SHMKEY ((key_t)777)
+
+// shared memory global variables
+struct ClientInfo
+{
+    int fd;
+    int pid;
+    int uid;
+    char name[20];                          
+    char msg[1025];                        
+    char ip[20];
+    unsigned short port;
+    int sendInfo[LISTENQ];     
+    int recvInfo[LISTENQ];   
+};
+
+enum BroadcastSign
+{
+    YELL,
+    NAME,
+    EXIT,
+    SEND,
+    RECV,
+    ENTER
+};
+
+
+// shell global variables
 const int TIMEOUT = 10;
 static int ID = 0;
 int DEVNULLO = fileno(fopen("/dev/null", "w"));
@@ -141,3 +174,66 @@ void rwg_name(vector<string>, int);
 void rwg_exit(vector<string>, int);
 int shell_function(string, int, int, bool, bool, int, int);
 void broadcast(string);
+
+// Shared memory global variables
+int shmID;
+ClientInfo *shmStartAddr;
+ClientInfo *shmCurrentAddr;
+//! SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS 
+enum PipeSign
+{
+    Pipe,
+    NumberPipe,
+    ErrorPipe,
+    Write,
+    WriteUserPipe,
+    None
+};
+struct Pipe
+{
+    int pipeNum;
+    int senderId;
+    int recverId;
+    int clientId;
+    int * pipefd;
+    PipeSign sign;
+};
+vector<struct Pipe> pipeV;
+//! AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+// Shared memory functions
+void InitShm();
+void InitClientTable();
+ClientInfo* SetClient();
+void WelcomeUser(int);
+void _BroadCast(string ,BroadcastSign ,int);
+void Exit();
+void ClearClientTable();
+void ClearPipe();
+int Shell(int);
+
+vector<string> SplitEnvPath(string path, char delim);
+vector<string> SplitCmdWithSpace(string cmdLine);
+void IdentifyCmd(vector<string> &splitCmdLine, vector<string>::iterator &iterLine, string &cmd, vector<string> &argV, PipeSign &sign, int &pipeNum, int &writeId, int &readId);
+struct Fd
+{
+    int in;
+    int out;
+    int error;
+};
+bool BuildCmd(string cmd);
+int DoBuildinCmd(int sSock, string cmd, vector<string> argV, string &path, vector<string> &pathV);
+void ClosePipe(int readId);
+void ReducePipe();
+bool HasClient(int uid);
+bool HasUserPipe(int senderId, int recverId);
+void CreatePipe(PipeSign sign, int pipeNum, int clientId, int senderId, int recverId);
+bool HasNumberedPipe(int pipeNum, PipeSign sign, int clientId);
+void SetStdInOut(PipeSign sign, Fd &fd, int pipeNum, int writeId, int readId, bool UserPipeInError, bool UserPipeOutError);
+void DoCmd(string cmd, vector<string> argV, vector<string> pathV, Fd fd, int sSock);
+bool SpaceLine(string cmdLine, int &cmdSize);
+void ReducePipeNum();
+bool LegalCmd(string cmd, vector<string> argV, vector<string> pathV);
+char** SetArgv(string cmd, vector<string> argV);
+int PassiveTcp(int port);
+void SigClient(int signo);

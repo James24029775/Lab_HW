@@ -709,19 +709,19 @@
 111| *** User from [address108] is named 'Food11'. ***
 111| *** User from [address111] is named 'Food12'. ***
 111| % who
-111| <ID>	<nickname>	<IP:port>	<indicate me>
-111| 1	Food1	[address85]
-111| 3	Food2	[address87]
-111| 6	Food3	[address90]
-111| 11	Food4	[address95]
-111| 15	Food5	[address99]
-111| 16	Food6	[address100]
-111| 18	Food7	[address102]
-111| 20	Food8	[address104]
-111| 22	Food9	[address22]
-111| 23	Food10	[address106]
-111| 25	Food11	[address108]
-111| 28	Food12	[address111]	<-me
+111| <ID> <nickname> <IP:port>  <indicate me>
+111| 1    Food1 [address85]   
+111| 3    Food2 [address87]   
+111| 6    Food3 [address90]   
+111| 11    Food4 [address95]   
+111| 15    Food5 [address99]   
+111| 16    Food6 [address100]   
+111| 18    Food7 [address102]   
+111| 20    Food8 [address104]   
+111| 22    Food9 [address22]   
+111| 23    Food10 [address106]   
+111| 25    Food11 [address108]   
+111| 28    Food12 [address111]   <-me
 111| % tell 1 testing...
 111| % tell 2 testing...
 111| *** Error: user #2 does not exist yet. ***

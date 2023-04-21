@@ -81,17 +81,13 @@ int main(int argc, char* argv[]){
                 port[i] = ntohs(cliaddr.sin_port);
                 ipaddr[i] = string(addr);
 
-                string msg = "*** User '" + name[i]  + "' entered from " + ipaddr[i] + ":" + to_string(port[i]) + ". ***\n";
                 // 只要有新連線，要對自己發送MOTO訊息，並通知其餘在線的人
                 for(j=1; j<LISTENQ; j++){
                     if(j == i){
-                        string newer_msg = MOTD + msg + "% ";
+                        string newer_msg ="% ";
                         write(client[j], newer_msg.c_str(), newer_msg.length());
                     }
-                    else
-                        write(client[j], msg.c_str(), msg.length());
                 }
-                cout << "*** User '" << name[i]  << "' entered from " << ipaddr[i] << ":" << port[i] << ". ***" << endl;
             }
             //Add new user to set
             FD_SET(connfd, &allset);

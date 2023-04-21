@@ -139,18 +139,25 @@ void choose_shell_cmd(vector<string> &arg, string input, int cli, int sockfd){
         broadcast(msg);
     }
 
+    cout << "**********************************************1" << endl;
+
     // Shell commands 
     string instruction = "";
     for (int i=0; i<arg_num; i++) {
         instruction = instruction + arg[i] + " ";
     }
     instruction += "\n";
+    cout << "**********************************************1.5" << endl;
     shell_function(instruction, sockfd, cli, pipe_in_flg, pipe_out_flg, in_user_pipe_num, out_user_pipe_num);
     
+    cout << "**********************************************2" << endl;
 
     // Reset environment argument
     for(auto iter=env[cli].begin(); iter != env[cli].end(); iter++)
         setenv(iter->first.c_str(), "", 1);
+
+    cout << "**********************************************3" << endl;
+    
 }
 
 bool choose_rwg_cmd(vector<string> args, int cli) {
