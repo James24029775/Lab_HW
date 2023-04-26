@@ -2,7 +2,6 @@ void rwg_func(int sockfd, int cli) {
     memset(buf, 0, MAXLEN);
     ssize_t bytes_read = read(sockfd, buf, MAXLEN);
     
-
     if (bytes_read == -1){
         cerr << "Error reading from socket." << endl;
         exit(EXIT_FAILURE);

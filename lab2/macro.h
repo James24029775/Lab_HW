@@ -198,19 +198,35 @@ struct Pipe
     int * pipefd;
     PipeSign sign;
 };
+// 因為不是shm，所以不同process的pipev都不一樣
 vector<struct Pipe> pipeV;
-//! AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 // Shared memory functions
+void InitpipeV();
 void InitShm();
 void InitClientTable();
 ClientInfo* SetClient();
 void WelcomeUser(int);
 void _BroadCast(string ,BroadcastSign ,int);
-void Exit();
+void _Exit();
 void ClearClientTable();
 void ClearPipe();
 int Shell(int);
+void sm_broadcast(string msg);
+void sm_rwg_who(vector<string> args);
+bool sm_choose_rwg_cmd(vector<string> args);
+void sm_rwg_func(int sockfd);
+void sm_rwg_tell(vector<string> args);
+void sm_rwg_yell(vector<string> args);
+void sm_rwg_name(vector<string> args);
+void sm_rwg_exit(vector<string> args);
+void sm_choose_shell_cmd(vector<string> &arg, string input, int sockfd);
+int sm_shell_function(string instruction, int sockfd);
+void sm_exec_cmds(cmd *localCmd, bool pipe_in_flg);
+void sm_bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int sockfd);
+void sm_ordinary_pipe(ordinary_pipe_t *op);
+void sm_numbered_pipe(number_pipe_t *Node, int op_idx);
+void sm_CreatePipe(int clientId, int senderId, int recverId);
 
 vector<string> SplitEnvPath(string path, char delim);
 vector<string> SplitCmdWithSpace(string cmdLine);

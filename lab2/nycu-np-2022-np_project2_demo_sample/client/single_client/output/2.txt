@@ -1,3 +1,7 @@
+1| ****************************************
+1| ** Welcome to the information server. **
+1| ****************************************
+1| *** User '(no name)' entered from [address1]. ***
 1| % removetag0 test.html !1
 1| % number |1
 1| % cat

@@ -34,6 +34,16 @@ int main(int argc, char* const argv[])
     InitShm();
     InitClientTable();
 
+    for(int i=0; i<LISTENQ; i++){
+        for(int j = 0; j < NODE_LIMIT; j++) {
+            knowNode[i].record[j] = NULL;
+        }
+        knowNode[i].cnt = 0;
+        newNode[i] = NULL;
+        targetNode[i] = NULL;
+        parentNode[i] = NULL;
+    }
+
     while(1)
     {
         clilen = sizeof(cliaddr);
@@ -70,7 +80,7 @@ int main(int argc, char* const argv[])
             shmCurrentAddr->port = ntohs(cliaddr.sin_port);
             
             Shell(connfd);
-            Exit();
+            _Exit();
             close(connfd);
             exit(0);
         }

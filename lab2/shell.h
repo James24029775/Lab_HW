@@ -8,20 +8,16 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
     
     cmd *localCmd;
     ordinary_pipe_t current_op, tmp_op;
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!0" << endl;
 
     reset_dict(&valid_cmd_dict);
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!3" << endl;
 
     memcpy(input, instruction.c_str(), instruction.size());
 
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!4" << endl;
     targetNode[cli] = newNode[cli] = parentNode[cli] = NULL;
     // Original while
     if (!strcmp(input, "\n")) {
         return 0;
     }
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!5" << endl;
     // reset
     char *terms[LENGTH_LIMIT][TERM_AMT_LIMIT];
     cmd_amt = OP_len = start_index = 0;
@@ -33,7 +29,6 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
     // Parse input and store info into a ordinary_pipe_t
     np_cnt = split_terms(input, &current_op, filename);
     memset(input, 0, LENGTH_LIMIT);
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!10" << endl;
 
 
     // // Minus every nodes' ttl to maintan number pipe DS.
@@ -51,7 +46,6 @@ int shell_function(string instruction, int sockfd, int cli, bool pipe_in_flg, bo
     it's time to end a number pipe request.
     3. Tackle remaining requests, e.g. ordinary pipe, normal commands, etc.
     */
-    cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
 
     // 1.
     if (np_cnt) {
@@ -335,28 +329,21 @@ void reset_dict(CMD_dict *valid_cmd_dict) {
     memset(valid_cmd_dict, 0, sizeof(CMD_dict));
 
     s = getenv("PATH");
-    cout << "S " << s << endl;
 
     memset(d, 0, 10);
     strcpy(d, ":");
     strcpy(local_input, s);
-    cout << "ERRRRRRRRRRRRROR HERE 2 " << endl;
     p = strtok(local_input, d);
-    cout << "ERRRRRRRRRRRRROR HERE 3 " << endl;
     i = 0;
     while (p != NULL) {
-        cout << "ERRRRRRRRRRRRROR HERE 4 " << endl;
         dir = opendir(p);
-        cout << "ERRRRRRRRRRRRROR HERE 4.5 " << endl;
         if (dir == NULL) {
             break;
         }
         while ((ent = readdir(dir)) != NULL) {
-            cout << "ERRRRRRRRRRRRROR HERE 5 " << endl;
             strcpy(valid_cmd_dict->dict[i++], ent->d_name);
             valid_cmd_dict->cnt++;
         }
-        cout << "ERRRRRRRRRRRRROR HERE 6 " << endl;
         closedir(dir);
         p = strtok(NULL, d);
     }

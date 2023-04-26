@@ -1,3 +1,827 @@
+void sm_rwg_func(int sockfd) {
+    memset(buf, 0, MAXLEN);
+    ssize_t bytes_read = read(sockfd, buf, MAXLEN);
+    
+    if (bytes_read == -1){
+        cerr << "Error reading from socket." << endl;
+        exit(EXIT_FAILURE);
+    }
+
+    string msg = string(buf);
+    for(int i=0; i<msg.length(); i++){
+        if(msg[i] == '\r' || msg[i] == '\n'){
+            msg.erase(msg.begin()+i);
+            i --;
+        }
+    }
+
+    stringstream ss(buf);
+    string arg;
+    vector<string> args;
+    while(ss >> arg){
+        args.push_back(arg);
+    }
+
+    // Minus every nodes' ttl to maintan number pipe DS.
+    if (msg != "") {
+        // cout << msg << endl;
+        int cli = shmCurrentAddr->uid;
+        minus_ttl(&knowNode[cli]);
+        if (!sm_choose_rwg_cmd(args))
+            sm_choose_shell_cmd(args, msg, sockfd);
+    }
+
+    // cout << "ATTTTTTTTTTTTTTTTTTTTTTENTION" << endl;
+    
+    // vector<struct Pipe>::iterator iter = pipeV.begin();
+    // while(iter != pipeV.end())
+    // {
+    //     cout << (*iter).senderId << " " << (*iter).recverId << " " << (*iter).clientId << " " << endl;
+    //     iter++;
+    // }
+}
+
+void sm_choose_shell_cmd(vector<string> &arg, string input, int sockfd){
+    int arg_num = arg.size();
+    signal(SIGCHLD, SIG_IGN);
+    // cout << "??????????????????" << endl;
+
+    // Check user pipe
+    int user_pipe_num = 0, in_user_pipe_num = 0, out_user_pipe_num = 0;
+    bool in_user_exist_flg = true, out_user_exist_flg = true;
+    bool in_pipe_exist_flg = true, out_pipe_dup_flg = false;
+    for (int i = 0; i < arg_num; i++){
+        if ((arg[i][0] == '<' || arg[i][0] == '>') && arg[i].length() > 1) {
+            user_pipe_num = stoi(&arg[i][1]);
+            for (int j = 1; j < arg[i].length(); j++) {
+                if (arg[i][j] < '0' || arg[i][j] > '9') {
+                    user_pipe_num = 0;
+                    break;
+                }
+            }
+
+            if (user_pipe_num > 0) {
+                // Check user exist
+                
+                // if (user_pipe_num > LISTENQ || client[user_pipe_num] < 0) {
+                if (user_pipe_num > LISTENQ || !HasClient(user_pipe_num)) {
+                    if (arg[i][0] == '<') {
+                        in_user_exist_flg = false;
+                        in_user_pipe_num = -1 * user_pipe_num;
+                    }
+                    else if (arg[i][0] == '>') {
+                        out_user_exist_flg = false;
+                        out_user_pipe_num = -1 * user_pipe_num;
+                    }
+                    arg.erase(arg.begin()+i);
+                    i--;
+                    arg_num--;
+                    continue;
+                }
+
+                // Check pipe in
+                if (arg[i][0] == '<') {
+                    // if (user_pipe_num > LISTENQ || (used_user_pipe[user_pipe_num][cli].user_pipe[0] == -1 && used_user_pipe[user_pipe_num][cli].user_pipe[1] == -1)){
+                    if (HasUserPipe(user_pipe_num, shmCurrentAddr->uid)) {
+                        in_pipe_exist_flg = true;
+                        in_user_pipe_num = user_pipe_num;
+                    } else {
+                        in_pipe_exist_flg = false;
+                        in_user_pipe_num = -1 * user_pipe_num;
+                    }
+                    // if (user_pipe_num > LISTENQ || (!HasUserPipe(user_pipe_num, shmCurrentAddr->uid))){
+                    //     in_pipe_exist_flg = false;
+                    //     in_user_pipe_num = -1 * user_pipe_num;
+                    // }
+                    // else {
+                    //     in_pipe_exist_flg = true;
+                    //     in_user_pipe_num = user_pipe_num;
+                    // }
+                }
+                // Check pipe out
+                else if (arg[i][0] == '>') {
+                    // if (used_user_pipe[cli][user_pipe_num].user_pipe[0] == -1 && used_user_pipe[cli][user_pipe_num].user_pipe[1] == -1) {
+                    if (!HasUserPipe(shmCurrentAddr->uid, user_pipe_num)){
+                        struct user_pipe tmp_user_pipe;
+                        // FOCUSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
+                        // pipe(tmp_user_pipe.user_pipe);
+                        // used_user_pipe[cli][user_pipe_num] = tmp_user_pipe;
+                        sm_CreatePipe(shmCurrentAddr->uid, shmCurrentAddr->uid, user_pipe_num);
+                        out_pipe_dup_flg = false;
+                        out_user_pipe_num = user_pipe_num;
+                    }
+                    else {
+                        out_pipe_dup_flg = true;
+                        out_user_pipe_num = -1 * user_pipe_num;
+                    }
+                }
+                arg.erase(arg.begin()+i);
+                i--;
+                arg_num--;
+            } 
+            
+        }
+    }
+    // cout << "WAAAAAAAAAIT: " << input << "  " << endl;
+    // cout << "IN num " << in_user_pipe_num << " OUT num " << out_user_pipe_num << endl;
+    // cout << "user_pipe_num " << user_pipe_num << " cli " << shmCurrentAddr->uid << endl;
+    
+    bool pipe_in_flg = false, pipe_out_flg = false;
+    if (in_user_exist_flg && in_pipe_exist_flg && in_user_pipe_num > 0) pipe_in_flg = true;
+    if (out_user_exist_flg && !out_pipe_dup_flg && out_user_pipe_num > 0) pipe_out_flg = true;
+
+    // Make pipe-in msg
+    if (!in_user_exist_flg) {
+        int err_user_num = -1 * in_user_pipe_num;
+        string errmsg = "*** Error: user #" + to_string(err_user_num) + " does not exist yet. ***\n";
+        // write(sockfd, errmsg.c_str(), errmsg.length());
+        write(shmCurrentAddr->fd, errmsg.c_str(), errmsg.length());
+    } else if (!in_pipe_exist_flg) {
+        int err_user_num = -1 * in_user_pipe_num;
+        string errmsg = "*** Error: the pipe #" + to_string(err_user_num) + "->#" + to_string(shmCurrentAddr->uid) + " does not exist yet. ***\n";
+        // write(sockfd, errmsg.c_str(), errmsg.length());
+        write(shmCurrentAddr->fd, errmsg.c_str(), errmsg.length());
+    } else if (pipe_in_flg) {
+        string msg = "*** " + string(shmCurrentAddr->name) + " (#" + to_string(shmCurrentAddr->uid) + ") just received from " + string(shmStartAddr[in_user_pipe_num-1].name) + " (#" + to_string(shmStartAddr[in_user_pipe_num-1].uid) + ") by \'" + input + "' ***\n";
+        // temp =       "*** " + string(shmCurrentAddr->name) + " (#" + to_string(shmCurrentAddr->uid) + ") just received from " + string(shmStartAddr[sendrecvuid-1].name) + " (#" + to_string(shmStartAddr[sendrecvuid-1].uid) + ") by '" + input + "' ***";
+        sm_broadcast(msg);
+    }
+
+    // Make pipe-out msg 
+    if (!out_user_exist_flg) {
+        int err_user_num = -1 * out_user_pipe_num;
+        string errmsg = "*** Error: user #" + to_string(err_user_num) + " does not exist yet. ***\n";
+        write(sockfd, errmsg.c_str(), errmsg.length());
+    } else if (out_pipe_dup_flg) {
+        int err_user_num = -1 * out_user_pipe_num;
+        string errmsg = "*** Error: the pipe #" + to_string(shmCurrentAddr->uid) + "->#" + to_string(err_user_num) + " already exists. ***\n";
+        write(sockfd, errmsg.c_str(), errmsg.length());
+    } else if (pipe_out_flg) {
+        string msg = "*** " + string(shmCurrentAddr->name) + " (#" + to_string(shmCurrentAddr->uid) + ") just piped '" + input + "' to " + string(shmStartAddr[out_user_pipe_num-1].name) + " (#" + to_string(shmStartAddr[out_user_pipe_num-1].uid) + ") ***\n";
+        //   temp = "*** " + string(shmCurrentAddr->name) + " (#" + to_string(shmCurrentAddr->uid) + ") just piped '" + input + "' to " + string(shmStartAddr[sendrecvuid-1].name) + " (#" + to_string(shmStartAddr[sendrecvuid-1].uid)+") ***";
+        sm_broadcast(msg);
+    }
+
+    // cout << "**********************************************1" << endl;
+
+    // Shell commands 
+    string instruction = "";
+    for (int i=0; i<arg_num; i++) {
+        instruction = instruction + arg[i] + " ";
+    }
+    instruction += "\n";
+    // cout << "**********************************************1.5" << endl;
+    sm_shell_function(instruction, sockfd);
+    
+    // cout << "**********************************************2" << endl;
+
+}
+
+// , bool pipe_in_flg, bool pipe_out_flg, int in_pipe_num, int out_pipe_num
+int sm_shell_function(string instruction, int sockfd) {
+    char input[LENGTH_LIMIT], illegal_term[LENGTH_LIMIT], filename[LENGTH_LIMIT];
+    CMD_dict valid_cmd_dict;
+    int cmd_amt, ttl, OP_len, np_cnt, i, start_index, ith[EX_LIMIT];
+    bool ifNumberPipe, first_flg, ex_flg;
+    int cli = shmCurrentAddr->uid;
+    cmd *localCmd;
+    ordinary_pipe_t current_op, tmp_op;
+
+    reset_dict(&valid_cmd_dict);
+
+    memcpy(input, instruction.c_str(), instruction.size());
+
+    targetNode[cli] = newNode[cli] = parentNode[cli] = NULL;
+    // Original while
+    if (!strcmp(input, "\n")) {
+        return 0;
+    }
+    // reset
+    char *terms[LENGTH_LIMIT][TERM_AMT_LIMIT];
+    cmd_amt = OP_len = start_index = 0;
+    ifNumberPipe = ex_flg = false;
+    memset(filename, 0, LENGTH_LIMIT);
+    reset(&current_op, ith);
+    memset(&current_op, 0, sizeof(ordinary_pipe_t));
+    scan(input, ith);
+    // Parse input and store info into a ordinary_pipe_t
+    np_cnt = split_terms(input, &current_op, filename);
+    memset(input, 0, LENGTH_LIMIT);
+
+
+    // // Minus every nodes' ttl to maintan number pipe DS.
+    // minus_ttl(&knowNode[cli]);
+    targetNode[cli] = getSpecificNode(&knowNode[cli], 0);
+
+    /*
+    Priority: store info into a number_pipe_t -> end a number pipe request ->
+    other requests
+    1. when np_cnt > 0, which means there are some info should be saved into
+    number_pipe_t, or even be ended (number test.html |1 number).
+        1.1. if ifNumberPipe is true, means the cmd should be saved.
+        1.2. else do the same things like 2.
+    2. when targetNode isn't empty and current cmd isn't also number pipe,
+    it's time to end a number pipe request.
+    3. Tackle remaining requests, e.g. ordinary pipe, normal commands, etc.
+    */
+
+    // 1.
+    if (np_cnt) {
+        first_flg = true;
+        for (i = 0; i < np_cnt + 1; i++) {
+            targetNode[cli] = newNode[cli] = parentNode[cli] = NULL;
+            memset(&tmp_op, 0, sizeof(ordinary_pipe_t));
+            start_index = copy_ith_op(&tmp_op, &current_op, start_index);
+            // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+            // if (in_pipe_num > 0) {
+            //     in_pipe_num_v[cli].push_back(in_pipe_num);
+            //     tmp_op.in_pipe_num = in_pipe_num;
+            // }
+            if (start_index == -1) {
+                break;
+            }
+
+            if (!check_valid(&tmp_op, illegal_term, &ifNumberPipe, &OP_len,
+                                &valid_cmd_dict)) {
+                string msg = "Unknown command: [" + string(illegal_term) + "].\n";
+                write(sockfd, msg.c_str(), msg.length());
+                return 0;
+            }
+            // cout << "1.0------------0" << endl;
+            if (strlen(tmp_op.cmds[OP_len].terms[0]) == 0) {
+                ifNumberPipe = false;
+            }
+
+            if (first_flg) {
+                first_flg = false;
+            } else {
+                minus_ttl(&knowNode[cli]);
+            }
+            targetNode[cli] = getSpecificNode(&knowNode[cli], 0);
+            // 1.1.
+            if (ifNumberPipe) {
+                ttl = tran2number(tmp_op.cmds[OP_len].terms[0]);
+                if (targetNode[cli]) {
+                    // cout << "1.1------------1" << endl;
+                    parentNode[cli] = getSpecificNode(&knowNode[cli], ttl);
+                    if (parentNode[cli]) {
+                        addInfo2ExistNode(parentNode[cli], &tmp_op, OP_len, ith, i);
+                        adoptChild(parentNode[cli], targetNode[cli]);
+                    } else {
+                        newNode[cli] = createNode(&knowNode[cli]);
+                        addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
+                        adoptChild(newNode[cli], targetNode[cli]);
+                    }
+                } else {
+                    // cout << "1.1------------2" << endl;
+                    targetNode[cli] = getSpecificNode(&knowNode[cli], ttl);
+                    if (targetNode[cli]) {
+                        addInfo2ExistNode(targetNode[cli], &tmp_op, OP_len, ith, i);
+                    } else {
+                        newNode[cli] = createNode(&knowNode[cli]);
+                        addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
+                    }
+                }
+            }
+            // 1.2.
+            else if (targetNode[cli]) {
+                // cout << "1.2------------1" << endl;
+                newNode[cli] = createNode(&knowNode[cli]);
+                // cout << "1.2.-0" << endl;
+                addInfo2ExistNode(newNode[cli], &tmp_op, OP_len, ith, i);
+                // cout << "1.2.-1" << endl;
+                adoptChild(newNode[cli], targetNode[cli]);
+                // cout << "1.2.-2" << endl;
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // , cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num
+                sm_bin_func(&tmp_op, filename, newNode[cli], sockfd);
+                // cout << "1.2.-3" << endl;
+            }
+        }
+    } else {
+        if (!check_valid(&current_op, illegal_term, &ifNumberPipe, &OP_len,
+                            &valid_cmd_dict)) {
+            // cout << "Y111" << endl;
+            string msg = "Unknown command: [" + string(illegal_term) + "].\n";
+            write(sockfd, msg.c_str(), msg.length());
+            return 0;
+        }
+        // 2.
+        if (targetNode[cli]) {
+            // cout << "Y222" << endl;
+            newNode[cli] = createNode(&knowNode[cli]);
+            addInfo2ExistNode(newNode[cli], &current_op, OP_len, ith, -2);
+            adoptChild(newNode[cli], targetNode[cli]);
+            // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+            // bin_func(&current_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
+            sm_bin_func(&current_op, filename, newNode[cli], sockfd);
+        }
+        // 3.
+        else {
+            // cout << "Y333" << endl;
+            localCmd = &(current_op.cmds[0]);
+            if (!strcmp(localCmd->terms[0], "printenv")) {
+                // cout << "Y333-1" << endl;
+                // Error condition check, if need?
+                string env = localCmd->terms[1];
+                string msg = getenv(env.c_str()) + string("\n");
+                write(shmCurrentAddr->fd, msg.c_str(), msg.size());
+            } else if (!strcmp(localCmd->terms[0], "setenv")) {
+                // cout << "Y333-2" << endl;
+                // Error condition check, if need?
+                string env = localCmd->terms[1];
+                string assign = localCmd->terms[2];
+                setenv(env.c_str(), assign.c_str(), 1);
+                reset_dict(&valid_cmd_dict);
+            } else {
+                // cout << "Y333-3" << endl;
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // bin_func(&current_op, filename, newNode[cli], sockfd, cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num);
+                // , cli, pipe_in_flg, pipe_out_flg, in_pipe_num, out_pipe_num
+                sm_bin_func(&current_op, filename, newNode[cli], sockfd);
+            }
+        }
+    }
+    // show_node(&knowNode[cli]);
+}
+
+// HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+// , int cli, bool pipe_in_flg, bool pipe_out_flg, int in_pipe_num, int out_pipe_num
+void sm_bin_func(ordinary_pipe_t *localOP, char *filename, number_pipe_t *Node, int sockfd) {
+    int fd;
+    cmd *localCmd;
+    pid_t pid;
+    pid = fork();
+
+    switch (pid) {
+        case -1:
+            perror("Error");
+            exit(EXIT_FAILURE);
+        case 0:
+            // Open redirection mechanism
+            if (*filename) {
+                fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+                if (fd == -1) {
+                    perror("Error");
+                    exit(EXIT_FAILURE);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            } 
+            // cout << "HERE" << endl;
+            
+            if (Node) {
+                // cout << "HERE-1" << endl;
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // , cli, out_pipe_num
+                sm_numbered_pipe(Node, 0);
+            // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+            // } else if (in_pipe_num >= 0) {
+            } else if (true) {
+                if (localOP->cnt == 1) {
+                    // cout << "HERE-2" << endl;
+                    // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                    // user_pipe_redirect(in_pipe_num, out_pipe_num, cli);
+                    // sm_exec_cmds(localOP->cmds, pipe_in_flg);
+                    // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                    sm_exec_cmds(localOP->cmds, true);
+                } else {
+                    // cout << "HERE-3" << endl;
+                    // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                    // , cli, in_pipe_num, out_pipe_num
+                    sm_ordinary_pipe(localOP);
+                }
+            } else {
+                exit(EXIT_SUCCESS);
+            }
+
+        default:
+            // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+            // cout << "FFFFFFFFFFFFFFFFUC<MKK11111111111111" << endl;
+            // if(in_pipe_num > 0){
+            //     cout << "INNER11111111111111" << endl;
+            //     close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+            //     close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+            // } else if (Node) {
+            //     for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+            //         in_pipe_num = in_pipe_num_v[cli][i];
+            //         close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+            //         close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+            //     }
+            // }
+            wait(NULL);
+            // cout << "FFFFFFFFFFFFFFFFUC<MKK222222222222" << endl;
+            // if(in_pipe_num > 0){
+            //     cout << "INNER222222222222222222" << endl;
+            //     used_user_pipe[in_pipe_num][cli].user_pipe[0] = -1;
+            //     used_user_pipe[in_pipe_num][cli].user_pipe[1] = -1;
+            // } else if (Node) {
+            //     for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+            //         in_pipe_num = in_pipe_num_v[cli][i];
+            //         used_user_pipe[in_pipe_num][cli].user_pipe[0] = -1;
+            //         used_user_pipe[in_pipe_num][cli].user_pipe[1] = -1;
+            //     }
+            //     in_pipe_num_v[cli].clear();
+            // }
+            break;
+    }
+}
+
+// HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+// , int cli, int out_pipe_num
+void sm_numbered_pipe(number_pipe_t *Node, int op_idx) {
+    pid_t pid;
+    int fds[2], i, j, stat;
+    int in_pipe_num, status;
+    bool first = true;
+    number_pipe_t *localNode;
+    cmd *localCmd;
+    ordinary_pipe_t *op;
+    op = &(Node->ops[op_idx]);
+    in_pipe_num = op->in_pipe_num;
+
+    if (!Node->child[op_idx]) {
+        op = &(Node->ops[op_idx]);
+        in_pipe_num = op->in_pipe_num;
+        if (in_pipe_num >= 0) {
+            if (op->cnt == 1){
+                sm_exec_cmds(&(op->cmds[0]), UNKNOWN);
+            }
+            else{
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // , cli, in_pipe_num, out_pipe_num
+                sm_ordinary_pipe(op);
+            }
+        }
+    }
+
+    if (pipe(fds) == -1) {
+        perror("Error");
+        exit(EXIT_FAILURE);
+    }
+
+    localNode = Node->child[op_idx];
+
+    for (j = 0; j < localNode->op_cnt; j++) {
+        pid = fork();
+        switch (pid) {
+            case -1:
+                perror("Error");
+                exit(EXIT_FAILURE);
+            case 0:
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // if (localNode->ops[j].in_pipe_num <= 0) {
+                //     for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                //         in_pipe_num = in_pipe_num_v[cli][i];
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                //     }
+                // } else {
+                //     // Redirect pipe in
+                //     in_pipe_num = localNode->ops[j].in_pipe_num;
+                //     if (in_pipe_num > 0) {
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                //         dup2(used_user_pipe[in_pipe_num][cli].user_pipe[0], 0);
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                //     }
+                // }
+                if (localNode->ops[j].ex_flg && localNode->ops[j].cnt == 1) {
+                    dup2(fds[1], STDERR_FILENO);
+                }
+                dup2(fds[1], STDOUT_FILENO);
+                close(fds[0]);
+                close(fds[1]);
+                
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // , cli, out_pipe_num
+                sm_numbered_pipe(localNode, j);
+                break;
+            default:
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // if (first) {
+                //     //! 這裡應該要關掉的是那些曾經in_pipe_num不為0的
+                //     for (int i = 0 ; i < in_pipe_num_v[cli].size(); i++) {
+                //         in_pipe_num = in_pipe_num_v[cli][i];
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                //         close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                //     }
+
+                //     if (!Node->parent && out_pipe_num > 0) {
+                //         close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+                //         dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+                //         close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
+                //     }
+                // }
+                first = false;
+                wait(NULL);
+                break;
+        }
+    }
+    // waitpid(pid, &status, 0);
+    // wait(NULL);
+    
+    
+    dup2(fds[0], STDIN_FILENO);
+    close(fds[0]);
+    close(fds[1]);
+    op = &(Node->ops[op_idx]);
+    if (op->cnt == 1){
+        // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+        sm_exec_cmds(&(Node->ops[op_idx].cmds[0]), UNKNOWN);
+    }
+    else{
+        // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+        // , cli, in_pipe_num, out_pipe_num
+        sm_ordinary_pipe(&(Node->ops[op_idx]));
+    }
+}
+
+void sm_exec_cmds(cmd *localCmd, bool pipe_in_flg) {
+    if (localCmd->cnt == 1 && strcmp(localCmd->terms[0], "ls") && !pipe_in_flg){
+        exit(EXIT_FAILURE);
+    }
+    char *argv[localCmd->cnt+1];
+    for(int i=0; i<localCmd->cnt; i++){
+        char tmp_buf[MAXLEN];
+        strcpy(tmp_buf, localCmd->terms[i]);
+        argv[i] = strdup(tmp_buf);
+    }
+    argv[localCmd->cnt] = NULL;
+    int err = execvp(argv[0], argv);
+    if(err != 0){
+        printf("Unknown command: [%s].\n", localCmd->terms[0]);
+        exit(EXIT_FAILURE);
+    }
+}
+
+// , int cli, int in_pipe_num, int out_pipe_num
+void sm_ordinary_pipe(ordinary_pipe_t *op) {
+    int *fds, fds_size;
+    int cmd_cnt = op->cnt, status;
+    int i, j;
+    pid_t pid;
+    
+    // register signal
+    signal(SIGCHLD, SIG_IGN);
+
+    fds_size = 2 * (op->cnt - 1);
+    fds = (int *)malloc(fds_size * sizeof(int));
+
+    for (i = 0; i < cmd_cnt - 1; i++) {
+        if (pipe(fds + i * 2) < 0) {
+            perror("Error");
+            exit(EXIT_FAILURE);
+        };
+    }
+    for (i = 0; i < cmd_cnt - 1; i++) {
+        pid = fork();
+        if (pid == -1) {
+            printf("fork failed\n");
+            exit(1);
+        }
+
+        if (pid == 0) {
+            if (i != 0) {
+                // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+                // if (in_pipe_num > 0) {
+                //     close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+                //     close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+                // }
+                if (dup2(fds[(i - 1) * 2], STDIN_FILENO) < 0) {
+                    perror("dup2");
+                    exit(1);
+                };
+            }
+            // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+            // else if (in_pipe_num > 0){
+            //     close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+            //     dup2(used_user_pipe[in_pipe_num][cli].user_pipe[0], 0);
+            //     close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+            // }
+            
+            if (dup2(fds[2 * i + 1], STDOUT_FILENO) < 0) {
+                perror("dup2");
+                exit(1);
+            };
+            for (j = 0; j < fds_size; j++) {
+                close(fds[j]);
+            }
+            
+            exec_cmds(&(op->cmds[i]), UNKNOWN);
+        }
+    }
+    // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+    // if (in_pipe_num > 0) {
+    //     close(used_user_pipe[in_pipe_num][cli].user_pipe[1]);
+    //     close(used_user_pipe[in_pipe_num][cli].user_pipe[0]);
+    // }
+
+    if (dup2(fds[((cmd_cnt-1) - 1) * 2], STDIN_FILENO) < 0) {
+        perror("dup2");
+        exit(1);
+    };
+
+    // HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+    // Redirect pipe out
+    // if (out_pipe_num > 0) {
+    //     close(used_user_pipe[cli][out_pipe_num].user_pipe[0]);
+    //     dup2(used_user_pipe[cli][out_pipe_num].user_pipe[1], 1);
+    //     close(used_user_pipe[cli][out_pipe_num].user_pipe[1]);
+    // }
+    // else if (out_pipe_num < 0)
+    //     dup2(DEVNULLO, 1);
+
+    for (j = 0; j < fds_size; j++) {
+        close(fds[j]);
+    }
+
+    free(fds);
+    exec_cmds(&(op->cmds[cmd_cnt - 1]), UNKNOWN);
+}
+
+bool sm_choose_rwg_cmd(vector<string> args) {
+    if (args[0] == "who"){
+        sm_rwg_who(args);
+        return true;
+    } else if (args[0] == "tell") {
+        sm_rwg_tell(args);
+        return true;
+    } else if (args[0] == "yell") {
+        sm_rwg_yell(args);
+        return true;
+    } else if (args[0] == "name") {
+        sm_rwg_name(args);
+        return true;
+    } else if (args[0] == "exit") {
+        sm_rwg_exit(args);
+        return true;
+    }
+    return false;
+}
+
+void sm_rwg_exit(vector<string> args) {
+    string msg;
+    msg = "*** User \'" + string(shmCurrentAddr->name) + "\' left. ***";
+    sm_broadcast(msg);
+
+    // // Clean user pipe
+    // for (int i = 0 ; i < LISTENQ ; i++){
+    //     used_user_pipe[i][cli].user_pipe[0] = -1;
+    //     used_user_pipe[i][cli].user_pipe[1] = -1;
+    //     used_user_pipe[cli][i].user_pipe[0] = -1;
+    //     used_user_pipe[cli][i].user_pipe[1] = -1;
+    // }
+    // in_pipe_num_v[cli].clear();
+    // for(int j = 0; j < NODE_LIMIT; j++) {
+    //     knowNode[cli].record[j] = NULL;
+    // }
+    // knowNode[cli].cnt = 0;
+    // newNode[cli] = NULL;
+    // targetNode[cli] = NULL;
+    // parentNode[cli] = NULL;
+
+    // Reset and close connection
+    shmCurrentAddr->pid = -1;
+    shmCurrentAddr->fd = -1;
+    shmCurrentAddr->uid = -1;
+    for(int j=0; j<LISTENQ; j++)
+    {
+        (shmCurrentAddr->sendInfo)[j] = -1;
+        (shmCurrentAddr->recvInfo)[j] = -1;
+    }
+    strcpy(shmCurrentAddr->msg,"");
+    
+    ClearClientTable();
+    ClearPipe();
+
+    if(shmdt(shmStartAddr) == -1)
+    {
+        cerr<<"Fail to detach shm, errno: "<<errno<<endl;
+        exit(EXIT_SUCCESS);
+    }
+    if (shmctl(shmID,IPC_RMID,0) == -1)
+    {
+        cerr<<"Fail to delete shm, errno: "<<errno<<endl;
+        exit(EXIT_SUCCESS);
+    }
+    exit(EXIT_SUCCESS);
+}
+
+void sm_rwg_name(vector<string> args) {
+    bool dupFlg = false;
+    for (int i = 0 ; i < LISTENQ; i++) {
+        if ((shmStartAddr+i)->name == args[1]){
+            dupFlg = true;
+            break;
+        }
+    }
+    
+    string msg;
+    if (dupFlg) {
+        msg = "*** User \'" + args[1] + "\' already exists. ***\n";
+        if (write(shmCurrentAddr->fd, msg.c_str(), msg.size()) == -1) {
+            cerr << "Error: Failed to write data to socket.\n";
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        strcpy(shmCurrentAddr->name, args[1].c_str());
+        msg = "*** User from " + string(shmCurrentAddr->ip) + ":" + to_string(shmCurrentAddr->port) + " is named \'"+ string(shmCurrentAddr->name) +"\'. ***";
+        sm_broadcast(msg);
+    }
+}
+
+void sm_rwg_yell(vector<string> args) {
+    string msg = "*** "+string(shmCurrentAddr->name)+" yelled ***: ";
+    for (int i = 1; i < args.size(); i++) {
+        msg += args[i] + " ";
+    }
+    // msg += "\n";
+
+    sm_broadcast(msg);
+}
+
+void sm_rwg_tell(vector<string> args) {
+    int towhom;
+    istringstream iss(args[1]);
+    iss >> towhom;
+
+    // If rcv doesn't exist
+    if (!HasClient(towhom)) {
+        string errmsg = "*** Error: user #"+ to_string(towhom) +" does not exist yet. ***\n";
+        if (write(shmCurrentAddr->fd, errmsg.c_str(), errmsg.length()) == -1) {
+            cerr << "Error: Failed to write data to socket.\n";
+            exit(EXIT_FAILURE);
+        }
+        return;
+    }
+
+    // If rcv exists
+    string msg = "*** " + string(shmCurrentAddr->name) + " told you ***: ";
+    for (int i = 2; i < args.size(); i++) {
+        msg += args[i] + " ";
+    }
+    // msg += "\n";
+
+    // if (write(client[towhom], msg.c_str(), msg.size()) == -1) {
+    //     cerr << "Error: Failed to write data to socket.\n";
+    //     exit(EXIT_FAILURE);
+    // }
+
+    for(int i=0; i<LISTENQ; i++)
+    {
+        if( (shmStartAddr+i)->uid  == towhom)
+        {
+            strcpy((shmStartAddr + i)->msg, msg.c_str());
+            kill((shmStartAddr+i)->pid, SIGUSR1);
+            break;
+        }
+    }
+}
+
+void sm_rwg_who(vector<string> args) {
+    string msg = WHO_COLUMN;
+    for (int i = 0; i < LISTENQ; i++) {
+        if ((shmStartAddr+i)->pid != -1){
+            msg += to_string(i+1) + '\t' + string((shmStartAddr+i)->name) + '\t' + string((shmStartAddr+i)->ip) + ':' + to_string((shmStartAddr+i)->port);
+            if((shmStartAddr+i)->uid == shmCurrentAddr->uid) {
+                msg += "\t<-me";
+            }
+            msg += '\n';
+        }
+    }
+    
+    if (write(shmCurrentAddr->fd, msg.c_str(), msg.length()) == -1) {
+        cerr << "Error: Failed to write data to socket.\n";
+        exit(EXIT_FAILURE);
+    }
+}
+
+void InitpipeV() {
+    // 設定共享記憶體的 key
+    key_t key = ftok("shared_memory_key", 1);
+    if (key == -1) {
+        std::cerr << "ftok failed" << std::endl;
+        return;
+    }
+
+    // 創建共享記憶體
+    int shmid = shmget(key, sizeof(std::vector<struct Pipe>), IPC_CREAT | 0666);
+    if (shmid == -1) {
+        std::cerr << "shmget failed" << std::endl;
+        return;
+    }
+
+    // 附加共享記憶體
+    void* shm_pipeV = shmat(shmid, nullptr, 0);
+    if (shm_pipeV == (void*)-1) {
+        std::cerr << "shmat failed" << std::endl;
+        return;
+    }
+
+    // 將 vector 拷貝到共享記憶體
+    memcpy(shm_pipeV, &pipeV, sizeof(std::vector<struct Pipe>));
+}
+
 void InitShm()
 {
     if((shmID = shmget(SHMKEY, sizeof(ClientInfo)*LISTENQ, IPC_CREAT | 0600)) <0)
@@ -49,44 +873,21 @@ void WelcomeUser(int sockfd)
     write(sockfd, msg.c_str(), msg.length());
 }
 
-void _BroadCast(string input,BroadcastSign sign,int sendrecvuid)
-{
-    string temp = "";
-    switch(sign) {
-        case YELL:
-            temp = "*** "+string(shmCurrentAddr->name)+" yelled ***: " + input ;
-            break;
-        case ENTER:
-            temp = "*** User '(no name)' entered from "+string(shmCurrentAddr->ip)+":"+to_string(shmCurrentAddr->port)+". ***";
-            break;
-        case EXIT:
-            temp = "*** User '"+string(shmCurrentAddr->name)+"' left. ***";
-            break;
-        case NAME:
-            temp = "*** User from " +string(shmCurrentAddr->ip)+":"+to_string(shmCurrentAddr->port)+" is named '"+string(shmCurrentAddr->name)+"'. ***";
-            break;
-        case SEND:
-            temp = "*** "+string(shmCurrentAddr->name)+" (#"+to_string(shmCurrentAddr->uid)+") just piped '"+input+"' to "+string(shmStartAddr[sendrecvuid-1].name)+" (#"+to_string(shmStartAddr[sendrecvuid-1].uid)+") ***";
-            break;
-        case RECV:
-            temp = "*** "+string(shmCurrentAddr->name)+" (#"+to_string(shmCurrentAddr->uid)+") just received from "+string(shmStartAddr[sendrecvuid-1].name)+" (#"+to_string(shmStartAddr[sendrecvuid-1].uid)+") by '"+input+"' ***";
-            break;
-        default:
-            break;
-    }
+void sm_broadcast(string msg){
     for(int i=0; i<LISTENQ; i++)
     {
         if( (shmStartAddr+i)->pid  != -1)
         {
-            strcpy((shmStartAddr + i)->msg,temp.c_str());
+            strcpy((shmStartAddr + i)->msg, msg.c_str());
+            //! 為何
             kill((shmStartAddr+i)->pid , SIGUSR1);
         }
     }
 }
 
-void Exit()
+void _Exit()
 {
-    _BroadCast("",EXIT,-1);
+    // _BroadCast("",EXIT,-1);
     shmCurrentAddr->pid = -1;
     shmCurrentAddr->uid = -1;
     ClearClientTable();
@@ -161,153 +962,16 @@ int Shell(int sockfd)
     bool UserPipeOutError;
 
     PipeSign sign;
+    
+    string newer_msg = MOTD;
+    string msg = "*** User '" + string(shmCurrentAddr->name)  + "' entered from " + string(shmCurrentAddr->ip) + ":" + to_string(shmCurrentAddr->port) + ". ***";
+    write(sockfd, newer_msg.c_str(), newer_msg.length());
+    sm_broadcast(msg);
+    write(sockfd, "% ", strlen("% "));
 
-    WelcomeUser(sockfd);
-    _BroadCast("",ENTER,-1);
-
-    while(1)
-    {
-        // cout<<"% ";
-        string msg = "% ";
-        write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-        getline(cin, cmdLine);
-        //!!!!!!!!!!!!!!從這開始要一股作氣開始看，要怎麼取代成自己的寫法 
-        splitCmdLine = SplitCmdWithSpace(cmdLine);
-        iterLine = splitCmdLine.begin();
-
-        isNumPipe = false;
-        pidV.clear();
-
-        while(iterLine != splitCmdLine.end() && *iterLine != "\0")
-        {
-            Fd fd = {sockfd, sockfd, sockfd};
-            vector<string> argV;
-            sign = None;
-            pipeNum = 0;
-            writeId = 0;
-            readId = 0;
-            UserPipeInError = false;
-            UserPipeOutError = false;
-        
-            IdentifyCmd(splitCmdLine, iterLine, cmd, argV, sign, pipeNum, writeId, readId);
-            
-            /*  Do buildin command  */
-            if(BuildCmd(cmd))
-            {
-                int status = DoBuildinCmd(sockfd, cmd, argV, path, pathV);
-                ClosePipe(readId);
-                ReducePipe();
-                if(status <0)
-                    return -1;
-                else
-                    break;
-            }
-
-            /*  handle cmd <n   */
-            if(readId != 0)
-            {
-                if(!HasClient(readId))
-                {
-                    // cout<<"*** Error: user #" + to_string(readId) + " does not exist yet. ***\n";
-                    string msg = "*** Error: user #" + to_string(readId) + " does not exist yet. ***\n";
-                    write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                    UserPipeInError = true;
-                }
-                else if(!HasUserPipe(readId, shmCurrentAddr->uid))
-                {
-                    // cout<<"*** Error: the pipe #" + to_string(readId) + "->#" + to_string(shmCurrentAddr->uid) + " does not exist yet. ***\n";
-                    string msg = "*** Error: the pipe #" + to_string(readId) + "->#" + to_string(shmCurrentAddr->uid) + " does not exist yet. ***\n";
-                    write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                    UserPipeInError = true;
-                }
-                else
-                    _BroadCast(cmdLine, RECV, readId);
-            }
-
-            if(sign == Pipe)
-            {
-                CreatePipe(sign, pipeNum, shmCurrentAddr->uid, 0, 0);
-            }
-            else if(sign == NumberPipe || sign == ErrorPipe)
-            {
-                if(!HasNumberedPipe(pipeNum, sign, shmCurrentAddr->uid))
-                    CreatePipe(sign, pipeNum, shmCurrentAddr->uid, 0, 0);
-                isNumPipe = true;
-            }
-            else if(sign == Write)
-            {
-                string fileName = argV[argV.size()-1];
-                argV.pop_back();
-                FILE* file = fopen(fileName.c_str(), "w");
-                
-                if(file == NULL)
-                {
-                    cerr<<"Fail to open file"<<endl;
-                    return -1;
-                }
-                
-                fd.out = fileno(file);
-            }
-            else if(sign == WriteUserPipe)
-            {
-                isNumPipe = true;
-                if(!HasClient(writeId))
-                {
-                    // cout<<"*** Error: user #" + to_string(writeId) + " does not exist yet. ***\n";
-                    string msg = "*** Error: user #" + to_string(writeId) + " does not exist yet. ***\n";
-                    write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                    UserPipeOutError = true;
-                }
-                else if(!HasUserPipe(shmCurrentAddr->uid, writeId))
-                {
-                    _BroadCast(cmdLine, SEND, writeId);
-                    CreatePipe(sign, -1, shmCurrentAddr->uid, shmCurrentAddr->uid, writeId);
-                }
-                else
-                {
-                    // cout<<"*** Error: the pipe #" + to_string(shmCurrentAddr->uid) + "->#" + to_string(writeId) + " already exists. ***\n";
-                    string msg = "*** Error: the pipe #" + to_string(shmCurrentAddr->uid) + "->#" + to_string(writeId) + " already exists. ***\n";
-                    write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                    UserPipeOutError = true;
-                }
-            }
-
-            SetStdInOut(sign, fd, pipeNum, writeId, readId, UserPipeInError, UserPipeOutError);
-            
-            pid_t pid;
-            while((pid = fork()) <0)
-            {
-                /*  parent process no resource to fork child process, so wait for child exit and release recourse   */
-                int status = 0;
-                waitpid(-1, &status, 0);
-            }
-            if(pid == 0)
-                DoCmd(cmd, argV, pathV, fd, sockfd);
-            else if(pid > 0)
-                pidV.push_back(pid);
-            
-
-            if(fd.in != sockfd)  //close read from pipe, the other entrance is closed in SetStdInOut
-                close(fd.in);
-
-            ClosePipe(readId);
-            ReducePipe();
-        }
-
-        if(!isNumPipe)
-        {
-            vector<pid_t>::iterator iter = pidV.begin();
-            while(iter != pidV.end())
-            {
-                int status;
-                waitpid((*iter), &status, 0);
-                iter++;
-            }
-        }
-
-        int cmdSize = cmdLine.length();
-        if(!SpaceLine(cmdLine, cmdSize))
-            ReducePipeNum();
+    while(1) {
+        sm_rwg_func(sockfd);
+        write(sockfd, "% ", strlen("% "));
     }
     return 0;
 }
@@ -447,112 +1111,6 @@ bool BuildCmd(string cmd)
     return false;
 }
 
-int DoBuildinCmd(int sockfd, string cmd, vector<string> argV, string &path, vector<string> &pathV)
-{
-    if(cmd == "printenv")
-    {
-        string env = argV[0];
-        string msg = getenv(env.c_str());
-        msg += "\n";
-        write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-        // cout<<msg<<endl;
-        return 0;
-    }
-    else if(cmd == "setenv")
-    {
-        string env, assign;
-
-        env = argV[0];
-        assign = argV[1];
-        setenv(env.c_str(), assign.c_str(), 1);
-        if(env == "PATH")
-        {
-            path = getenv("PATH");
-            pathV.clear();
-            pathV = SplitEnvPath(path, ':');
-        }
-        return 0;
-    }
-    else if(cmd == "yell")
-    {
-        string msg;
-        for(int i=0; i<argV.size(); i++)
-            msg += (" " + argV[i]);
-        _BroadCast(msg, YELL, -1);
-        return 0;
-    }
-    else if(cmd == "name")
-    {
-        string name = argV[0];
-        
-        for(int i=0; i<LISTENQ; i++)
-        {
-            if(shmStartAddr[i].name == name)
-            {
-                // cout << "*** User '"+name+"' already exists. ***" << endl;
-                string msg  = "*** User '"+name+"' already exists. ***\n";
-                write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                return 0;
-            }
-        }
-
-        strcpy(shmCurrentAddr->name, name.c_str());
-        _BroadCast("",NAME,-1);
-        return 0;
-    }
-    else if(cmd == "tell")
-    {
-        int sendId = atoi(argV[0].c_str());
-        string msg = "*** " + string(shmCurrentAddr->name) + " told you ***:";
-        for(int i=1; i<argV.size(); i++)
-            msg += (" " + argV[i]);
-
-        if(HasClient(sendId))
-        {
-            for(int i=0; i<LISTENQ; i++)
-            {
-                if( (shmStartAddr+i)->uid  == sendId)
-                {
-                    strcpy((shmStartAddr + i)->msg, msg.c_str());
-                    kill((shmStartAddr+i)->pid, SIGUSR1);
-                    break;
-                }
-            }
-        }
-        else
-        {
-            string msg = "*** Error: user #" + to_string(sendId) + " does not exist yet. ***\n";
-            write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-            // cout << "*** Error: user #" + to_string(sendId) + " does not exist yet. ***"<< endl;
-        }
-        return 0;
-    }
-    else if(cmd == "who")
-    {
-        string msg = "<ID> <nickname> <IP:port>  <indicate me>\n";
-        write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-        for(int i=0; i<LISTENQ; i++)
-        {
-            if((shmStartAddr+i)->pid  != -1)
-            {
-                msg = to_string((shmStartAddr+i)->uid) + "    " + (shmStartAddr+i)->name + " " + (shmStartAddr+i)->ip + ":" + to_string((shmStartAddr+i)->port) + "   ";
-                write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                if((shmStartAddr+i)->uid == shmCurrentAddr->uid) 
-                {
-                    msg = "<-me\n";
-                    write(shmCurrentAddr->fd, msg.c_str(), msg.length());
-                }
-                else
-                    write(shmCurrentAddr->fd, "\n", strlen("\n"));
-            }
-        }
-
-        return 0;   
-    }
-    else   // exit or EOF
-        return -1;
-}
-
 void ClosePipe(int readId)
 {
     vector<struct Pipe>::iterator iter = pipeV.begin();
@@ -606,18 +1164,22 @@ bool HasUserPipe(int senderId, int recverId)
 {
     vector<struct Pipe>::iterator iter = pipeV.begin();
 
+    // cout << "AAAAAAAAAAAAAAAAATTTTTTTTTTTTTTENTION" << endl;
     while(iter != pipeV.end())
     {
-        if((*iter).senderId == senderId && (*iter).recverId == recverId && (*iter).sign == WriteUserPipe)
-            return true;
+        // cout << (*iter).senderId << "  " << (*iter).recverId << endl;
 
+        if((*iter).senderId == senderId && (*iter).recverId == recverId)
+            return true;
+            
         iter++;
     }
+    // cout << endl << endl;
     
     return false;
 }
 
-void CreatePipe(PipeSign sign, int pipeNum, int clientId, int senderId, int recverId)
+void sm_CreatePipe(int clientId, int senderId, int recverId)
 {
     int* pipefd = new int [2];
     struct Pipe newPipe;
@@ -628,8 +1190,8 @@ void CreatePipe(PipeSign sign, int pipeNum, int clientId, int senderId, int recv
         exit(1);
     }
     newPipe.pipefd = pipefd;
-    newPipe.sign = sign;
-    newPipe.pipeNum = pipeNum;
+    // newPipe.sign = sign;
+    // newPipe.pipeNum = pipeNum;
     newPipe.clientId = clientId;
     newPipe.senderId = senderId;
     newPipe.recverId = recverId;
@@ -997,54 +1559,6 @@ char** SetArgv(string cmd, vector<string> argV)
     }
     argv[argV.size()+1] = NULL;
     return argv;
-}
-
-int PassiveTcp(int port)
-{
-    const char* protocal  = "TCP";
-    struct sockaddr_in servAddr;
-    struct protoent *proEntry;
-    int mSock, type;
-
-    bzero((char*)&servAddr, sizeof(servAddr));
-    servAddr.sin_family = AF_INET;
-    servAddr.sin_addr.s_addr = INADDR_ANY;
-    servAddr.sin_port = htons(port);
-
-    if((proEntry = getprotobyname(protocal) ) == NULL)
-    {
-        cerr<<"Fail to get protocal entry"<<endl;
-        exit(1);
-    }
-
-    type = SOCK_STREAM;
-    
-    if((mSock = socket(PF_INET, type, proEntry->p_proto)) <0)
-    {
-        cerr<<"Fail to create master socket, errno: "<<errno<<endl;
-        exit(1);
-    }
-
-	int optval = 1;
-	if (setsockopt(mSock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) == -1) 
-    {
-		cout<<"Error: Set socket failed"<<endl;
-		exit(1);
-	}
-
-    if(::bind(mSock, (struct sockaddr*)&servAddr, sizeof(servAddr)) <0)
-    {
-        cerr<<"Fail to bind master socket, errno: "<<errno<<endl;
-        exit(1);
-    }
-
-    if(listen(mSock, 5) <0)
-    {
-        cerr<<"Fail to listen master socket, errno: "<<errno<<endl;
-        exit(1);
-    }
-
-    return mSock;
 }
 
 void SigClient(int signo)
